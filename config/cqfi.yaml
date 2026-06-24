@@ -1,0 +1,10 @@
+# CheapQuant Fixed Income — default path configuration.
+# Override at startup:  cqfi --config path/to/cqfi.yaml
+# Or set CQFI_CONFIG in the environment.
+
+paths:
+  input_db: C:/data/sqlitedb/input_data.db
+  input_semantics: D:/Code/mcp_data/semantics/input_data.yaml
+  cache_db: ./data/cache/active_cache.db
+  cache_semantics_dir: ./semantics
+  sessions_dir: ./data/sessions

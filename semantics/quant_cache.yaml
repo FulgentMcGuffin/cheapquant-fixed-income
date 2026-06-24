@@ -1,0 +1,106 @@
+# Semantic profile for the QuantLib analytics cache (active_cache.db).
+#
+# Flattened pricing outputs live in cmt_prices; calculation_log tracks each
+# cached QuantLib run. Raw serialized frames remain in framecache tables
+# (cache_entries, cache_hashes) and are not meant for direct SQL analysis.
+
+dataset: quant_cache
+backend: sqlite
+description: >
+  Cached QuantLib fixed-income analytics. cmt_prices holds constant-maturity
+  treasury (CMT) zero-coupon bond prices and yields per issuer, valuation
+  date, and tenor. calculation_log indexes each cached function invocation.
+  Use this dataset to inspect pricing runs performed in the current session.
+
+vocabulary:
+  issuers:
+    United States: USA
+    US: USA
+    Germany: DEU
+    DE: DEU
+    United Kingdom: GBR
+    UK: GBR
+    Japan: JPN
+  rate_types:
+    zero: zero
+    par: par
+  tenors:
+    "6M": 0.5
+    "1Y": 1.0
+    "2Y": 2.0
+    "3Y": 3.0
+    "4Y": 4.0
+    "5Y": 5.0
+    "7Y": 7.0
+    "10Y": 10.0
+    "12Y": 12.0
+    "15Y": 15.0
+    "20Y": 20.0
+    "25Y": 25.0
+    "30Y": 30.0
+
+conventions:
+  date: >
+    valuation_date is TEXT 'YYYY-MM-DD'. Filter with date comparisons on that
+    column.
+  prices: >
+    clean_price is per 100 face value. yield_pct and input_rate_pct /
+    curve_zero_pct are expressed in percent (e.g. 4.25 means 4.25%).
+
+tables:
+  cmt_prices:
+    description: >
+      CMT zero-coupon prices and yields at standard pillar tenors, one row per
+      (issuer, valuation_date, tenor) pricing run.
+    columns:
+      id: {type: INTEGER, description: "Surrogate key."}
+      cache_id: {type: TEXT, description: "Framecache key for the full result blob."}
+      issuer: {type: TEXT, description: "Country code, e.g. USA, DEU."}
+      valuation_date: {type: TEXT, description: "Curve date (YYYY-MM-DD)."}
+      rate_type: {type: TEXT, description: "'zero' or 'par' input rates used."}
+      tenor_label: {type: TEXT, description: "Human tenor, e.g. 10Y."}
+      tenor_years: {type: REAL, description: "Tenor in years."}
+      input_rate_pct: {type: REAL, description: "Input pillar rate from input_data (%)."}
+      curve_zero_pct: {type: REAL, description: "Curve-implied zero at the tenor (%)."}
+      clean_price: {type: REAL, description: "Clean price of the synthetic zero-coupon CMT."}
+      yield_pct: {type: REAL, description: "Bond yield (%)."}
+      created_at: {type: TEXT, description: "UTC timestamp when the run was cached."}
+  calculation_log:
+    description: >
+      One row per cached QuantLib function call (currently price_cmts).
+    columns:
+      id: {type: INTEGER, description: "Surrogate key."}
+      cache_id: {type: TEXT, description: "Framecache key linking to cmt_prices rows."}
+      function_name: {type: TEXT, description: "Cached function, e.g. price_cmts."}
+      issuer: {type: TEXT, description: "Issuer code when applicable."}
+      valuation_date: {type: TEXT, description: "Valuation date when applicable."}
+      rate_type: {type: TEXT, description: "zero or par when applicable."}
+      row_count: {type: INTEGER, description: "Number of result rows stored."}
+      created_at: {type: TEXT, description: "UTC timestamp."}
+  cache_entries:
+    description: >
+      Raw framecache blob store (serialized polars/numpy). Prefer cmt_prices for
+      analytics queries unless inspecting cache metadata.
+    columns:
+      cache_id: {type: TEXT, description: "Full framecache instance id."}
+      value: {type: BLOB, description: "Serialized payload (not human-readable)."}
+      created_at: {type: TEXT, description: "When the entry was written."}
+      expires_at: {type: TEXT, description: "Expiry timestamp or NULL."}
+
+examples:
+  - q: "What 10Y CMT clean prices did we compute for US Treasuries?"
+    sql: >
+      SELECT valuation_date, clean_price, yield_pct
+      FROM cmt_prices
+      WHERE issuer = 'USA' AND tenor_label = '10Y'
+      ORDER BY valuation_date
+  - q: "Latest German CMT pricing run"
+    sql: >
+      SELECT *
+      FROM cmt_prices
+      WHERE issuer = 'DEU'
+      ORDER BY created_at DESC
+      LIMIT 13
+  - q: "How many pricing runs are in this session?"
+    sql: >
+      SELECT COUNT(*) AS run_count FROM calculation_log
