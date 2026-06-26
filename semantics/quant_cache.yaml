@@ -21,6 +21,38 @@ vocabulary:
     United Kingdom: GBR
     UK: GBR
     Japan: JPN
+
+    Australia: AUS
+    Austria: AUT
+    Belgium: BEL
+    Brazil: BRA
+    Canada: CAN
+    Switzerland: CHE
+    China: CHN
+    Spain: ESP
+    France: FRA
+    Greece: GRC
+    India: IND
+    Ireland: IRL
+    Italy: ITA
+    Korea: KOR
+    Netherlands: NLD
+    Portugal: PRT
+    Russia: RUS
+    Bulgaria: BGR
+    Colombia: COL
+    Croatia: CRO
+    Cyprus: CYP
+    Czech Republic: CZE
+    Denmark: DNK
+    Estonia: EST
+    Finland: FIN
+    Mexico: MEX
+    South Africa: ZAF
+    Saudi Arabia: SAU
+    Singapore: SGP
+    Sweden: SWE
+
   rate_types:
     zero: zero
     par: par
