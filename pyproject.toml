@@ -11,10 +11,13 @@ dependencies = [
     "polars>=1.41.2",
     "pyyaml>=6.0.3",
     "python-dotenv>=1.2.2",
+    "plotnine>=0.15.7",
+    "pyside6>=6.11.1",
 ]
 
 [project.scripts]
-cqfi = "cheapquant_fi.agent.cli:main"
+cqfi     = "cheapquant_fi.agent.cli:main"
+cqfi-gui = "cheapquant_fi.gui.app:main"
 
 [dependency-groups]
 dev = [

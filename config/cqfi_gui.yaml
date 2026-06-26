@@ -1,5 +1,6 @@
-# CheapQuant Fixed Income — default path configuration.
-# Override at startup:  cqfi --config path/to/cqfi.yaml
+# CheapQuant Fixed Income — GUI configuration (ChatDialog interface).
+# Mirrors cqfi.yaml; both share the same database and semantics paths.
+# Launch with:  cqfi-gui [--config path/to/cqfi_gui.yaml]
 # Or set CQFI_CONFIG in the environment.
 
 paths:
