@@ -120,7 +120,7 @@ Pass `interpolation=ZeroInterp.<METHOD>` to `build_zero_curve` / `price_cmts_fro
 ## Architecture
 
 ```
-input_data.db (read-only)          QuantLib (CMT pricing)
+input_data.db (read-only)          QuantLib (e.g. CMT pricing)
         │                                    │
         │                                    ▼
         │                          framecache SQLiteBackend

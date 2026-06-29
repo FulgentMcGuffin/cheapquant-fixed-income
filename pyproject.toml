@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
     "QuantLib>=1.36",
+    "duckdb>=1.5.0",
     "framecache",
     "mcp-data",
     "polars>=1.41.2",

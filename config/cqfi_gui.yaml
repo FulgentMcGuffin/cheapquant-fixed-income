@@ -5,8 +5,11 @@
 
 paths:
   input_db: C:/data/sqlitedb/input_data.db
-  output_db: D:/data/sqlitedb/analytics_data.db
+  bond_analytics_db: D:/data/sqlitedb/bond_analytics.db
   input_semantics: D:/Code/mcp_data/semantics/input_data.yaml
   cache_db: ./data/cache/active_cache.db
   cache_semantics_dir: ./semantics
   sessions_dir: ./data/sessions
+
+settings:
+  write_to_bond_analytics_db: true

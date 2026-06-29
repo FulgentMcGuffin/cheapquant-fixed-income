@@ -412,7 +412,6 @@ SOURCE_ALIASES: dict[str, str] = {
     "KTBS": "KOR",
 }
 
-
 def resolve_issuer(source_or_name: str) -> IssuerProfile:
     key = source_or_name.strip().upper()
     code = SOURCE_ALIASES.get(key, key)

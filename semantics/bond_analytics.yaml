@@ -1,0 +1,190 @@
+# Semantic profile for the Bond Analytics DB (bond_analytics.db).
+
+
+dataset: bond_analytics
+backend: sqlite
+description: >
+  Bond analytics database that will hold the bond (identified by ISIN or a BondID or a combination of issuer, coupon and maturity) and its analytics (e.g. yield, duration, convexity, etc.) for a particular settlement date 
+
+vocabulary:
+  # possible values stored in the issuer column, these match the ISSUERS dictionary in the issuers.py file
+  issuers:
+    United States: USA
+    Germany: DEU
+    United Kingdom: GBR
+    UK: GBR
+    Japan: JPN
+    Australia: AUS
+    Austria: AUT
+    Belgium: BEL
+    Brazil: BRA
+    Canada: CAN
+    Switzerland: CHE
+    China: CHN
+    Spain: ESP
+    France: FRA
+    Greece: GRC
+    India: IND
+    Ireland: IRL
+    Italy: ITA
+    Korea: KOR
+    Netherlands: NLD
+    Portugal: PRT
+    Russia: RUS
+    Bulgaria: BGR
+    Colombia: COL
+    Croatia: CRO
+    Cyprus: CYP
+    Czech Republic: CZE
+    Denmark: DNK
+    Estonia: EST
+    Finland: FIN
+    Mexico: MEX
+    South Africa: ZAF
+    Saudi Arabia: SAU
+    Singapore: SGP
+    Sweden: SWE
+conventions:
+  date: >
+    All date columns (e.g. trade_date, maturity_date, settlement_date, issue_date, first_coupon_date  etc.) are TEXT stored as 'YYYY-MM-DD'. Filter ranges with
+    date >= '<start>' AND date <= '<end>'.
+  prices: >
+    clean_price is per 100 face value. yield_pct and input_rate_pct /
+    curve_zero_pct are expressed in percent (e.g. 4.25 means 4.25%). 100 basis points (abbreviated as bps or bp) is equal to 1%.
+
+tables:
+  tenor_pillars:
+    description: >
+      A table that will hold the tenor pillars structure that are available for analytics for each issuer at a particular date.
+    columns:
+      issuer: {type: TEXT, description: "Country code, e.g. USA, DEU. these match the issuers dictionary in the vocabulary."}
+      from_date: {type: TEXT, description: "The date from which the tenor pillar structure is valid (YYYY-MM-DD)."}
+      to_date: {type: TEXT, description: "The date until which the tenor pillar structure is valid (YYYY-MM-DD) - if not present, the structure is valid indefinitely."}
+      6M: {type: BOOLEAN, description: "1 if the 6-month pillar is in the term structure available, 0 otherwise."}
+      1Y: {type: BOOLEAN, description: "1 if the 1-year pillar is in the term structure available, 0 otherwise."}
+      2Y: {type: BOOLEAN, description: "1 if the 2-year pillar is in the term structure available, 0 otherwise."}
+      3Y: {type: BOOLEAN, description: "1 if the 3-year pillar is in the term structure available, 0 otherwise."}
+      4Y: {type: BOOLEAN, description: "1 if the 4-year pillar is in the term structure available, 0 otherwise."}
+      5Y: {type: BOOLEAN, description: "1 if the 5-year pillar is in the term structure available, 0 otherwise."}
+      7Y: {type: BOOLEAN, description: "1 if the 7-year pillar is in the term structure available, 0 otherwise."}
+      10Y: {type: BOOLEAN, description: "1 if the 10-year pillar is in the term structure available, 0 otherwise."}
+      12Y: {type: BOOLEAN, description: "1 if the 12-year pillar is in the term structure available, 0 otherwise."}
+      15Y: {type: BOOLEAN, description: "1 if the 15-year pillar is in the term structure available, 0 otherwise."}
+      20Y: {type: BOOLEAN, description: "1 if the 20-year pillar is in the term structure available, 0 otherwise."}
+      25Y: {type: BOOLEAN, description: "1 if the 25-year pillar is in the term structure available, 0 otherwise."}
+      30Y: {type: BOOLEAN, description: "1 if the 30-year pillar is in the term structure available, 0 otherwise."}
+      50Y: {type: BOOLEAN, description: "1 if the 50-year pillar is in the term structure available, 0 otherwise."}
+      70Y: {type: BOOLEAN, description: "1 if the 70-year pillar is in the term structure available, 0 otherwise."}
+      100Y: {type: BOOLEAN, description: "1 if the 95-year pillar is in the term structure available, 0 otherwise."}
+
+  bond_universe:
+    description: 
+      A table that will hold the universe of bonds that are available for analytics.
+    columns:
+      bond_id: {type: TEXT, description: "A unique identifier for the bond."}
+      user_friendly_id: {type: TEXT, description: "A user defined friendly ID for the bond"}
+      issuer: {type: TEXT, description: "Country code, e.g. USA, DEU. these match the issuers dictionary in the vocabulary."}
+      coupon: {type: REAL, description: "Coupon rate as a percentage."}      
+      maturity: {type: TEXT, description: "Maturity date (YYYY-MM-DD)."}
+      issue_date: {type: TEXT, description: "Issue date (YYYY-MM-DD)."}
+      first_coupon_date: {type: TEXT, description: "First coupon date (YYYY-MM-DD)."}
+      accrual_start_date: {type: TEXT, description: "Accrual start date (YYYY-MM-DD)."}
+      closest_tenor_pillar: {type: TEXT, description: "The closest tenor pillar label (6M, 1Y, ..., 30Y) from the tenor_pillars table columns to the bond's maturity date at the time of the issue_date."}
+      issue_amount: {type: REAL, description: "original issue amount of the bond in the currency of the issuer."}
+
+  bond_analytics:
+    description: 
+      analytics (price, yield, duration, convexity, etc.) for a particular bond at a particular settlement date using a particular yield curve 
+    columns:
+      bond_id: {type: TEXT, description: "A unique identifier for the bond present in the bond_universe table."}
+      created_at: {type: TEXT, description: "UTC timestamp when the analytics were computed."}
+      trade_date: {type: TEXT, description: "the trade date (YYYY-MM-DD) of the trade."}
+      settlement_date: {type: TEXT, description: "the settlement date (YYYY-MM-DD) of the trade."}
+      yield_to_maturity: {type: REAL, description: "Yield to maturity of the bond as a percentage."}
+      clean_price: {type: REAL, description: "Clean Price of the bond as a percentage of face value."}
+      dirty_price: {type: REAL, description: "Dirty Price of the bond as a percentage of face value."}
+      accrued_interest: {type: REAL, description: "Accrued interest of the bond as a percentage of face value (dirty price - clean price)."}
+      duration: {type: REAL, description: "Duration of the bond as a percentage (Macaulay duration)."}
+      convexity: {type: REAL, description: "Convexity of the bond as a percentage."}
+      dv01_sensitivity: {type: REAL, description: "Duration sensitivity of the bond as a percentage of face value (DV01)."}
+      gamma_sensitivity: {type: REAL, description: "Dollar convexity sensitivity of the bond as a percentage of face value."}
+      mm_cmt_yield: {type: REAL, description: "yield of the maturity matched CMT for this bond as a percentage."}
+      mm_fc_cmt_yield: {type: REAL, description: "yield of the maturity matched CMT with the same coupon as this bond as a percentage."}      
+      repo_rate_1m: {type: REAL, description: "Repo rate of the bond as a percentage using in the carry calculation for 1 month."}
+      repo_rate_3m: {type: REAL, description: "Repo rate of the bond as a percentage using in the carry calculation for 3 months."}
+      repo_rate_6m: {type: REAL, description: "Repo rate of the bond as a percentage using in the carry calculation for 6 months."}
+      repo_rate_1y: {type: REAL, description: "Repo rate of the bond as a percentage using in the carry calculation for 1 year."}
+      carry_1m: {type: REAL, description: "Carry of the bond as a percentage of face value for 1 month."}
+      carry_3m: {type: REAL, description: "Carry of the bond as a percentage of face value for 3 months."}
+      carry_6m: {type: REAL, description: "Carry of the bond as a percentage of face value for 6 months."}
+      carry_1y: {type: REAL, description: "Carry of the bond as a percentage of face value for 1 year."}
+      roll_1m: {type: REAL, description: "Roll of the bond as a percentage of face value for 1 month."}
+      roll_3m: {type: REAL, description: "Roll of the bond as a percentage of face value for 3 months."}
+      roll_6m: {type: REAL, description: "Roll of the bond as a percentage of face value for 6 months."}
+      roll_1y: {type: REAL, description: "Roll of the bond as a percentage of face value for 1 year."}
+      carry_roll_1m: {type: REAL, description: "Carry roll of the bond as a percentage of face value for 1 month."}
+      carry_roll_3m: {type: REAL, description: "Carry roll of the bond as a percentage of face value for 3 months."}
+      carry_roll_6m: {type: REAL, description: "Carry roll of the bond as a percentage of face value for 6 months."}
+      carry_roll_1y: {type: REAL, description: "Carry roll of the bond as a percentage of face value for 1 year."}
+      asw_spread_1m: {type: REAL, description: "ASW spread of the bond as a percentage of face value for 1 month."}
+      asw_spread_3m: {type: REAL, description: "ASW spread of the bond as a percentage of face value for 3 months."}
+      asw_spread_6m: {type: REAL, description: "ASW spread of the bond as a percentage of face value for 6 months."}
+      asw_spread_1y: {type: REAL, description: "ASW spread of the bond as a percentage of face value for 1 year."}
+      curve_settings: {type: TEXT, description: "The settings used on the bond curve to compute the analytics."}
+
+cmt_analytics:
+    description: 
+      analytics (price, yield, duration, convexity, etc.) for a particular CMT tenor at a particular settlement date using a particular yield curve 
+    columns:
+      issuer: {type: TEXT, description: "Country code, e.g. USA, DEU. these match the issuers dictionary in the vocabulary."}
+      tenor_label: {type: TEXT, description: "The tenor label (6M, 1Y, ..., 30Y) from the tenor_pillars table columns"}
+      created_at: {type: TEXT, description: "UTC timestamp when the analytics were computed."}
+      trade_date: {type: TEXT, description: "the trade date (YYYY-MM-DD) of the trade."}
+      settlement_date: {type: TEXT, description: "the settlement date (YYYY-MM-DD) of the trade."}
+      maturity_date: {type: TEXT, description: "the maturity date (YYYY-MM-DD) of the CMT."}
+      yield_to_maturity: {type: REAL, description: "Yield to maturity of the CMT as a percentage."}
+      clean_price: {type: REAL, description: "Clean Price of the CMT as a percentage of face value."}
+      duration: {type: REAL, description: "Duration of the CMT as a percentage (Macaulay duration)."}
+      convexity: {type: REAL, description: "Convexity of the CMT as a percentage."}
+      dv01_sensitivity: {type: REAL, description: "Duration sensitivity of the CMT as a percentage of face value (DV01)."}
+      gamma_sensitivity: {type: REAL, description: "Dollar convexity sensitivity of the CMT as a percentage of face value."}
+      repo_rate_1m: {type: REAL, description: "Repo rate of the CMT as a percentage using in the carry calculation for 1 month."}
+      repo_rate_3m: {type: REAL, description: "Repo rate of the CMT as a percentage using in the carry calculation for 3 months."}
+      repo_rate_6m: {type: REAL, description: "Repo rate of the CMT as a percentage using in the carry calculation for 6 months."}
+      repo_rate_1y: {type: REAL, description: "Repo rate of the CMT as a percentage using in the carry calculation for 1 year."}
+      carry_1m: {type: REAL, description: "Carry of the CMT as a percentage of face value for 1 month."}
+      carry_3m: {type: REAL, description: "Carry of the CMT as a percentage of face value for 3 months."}
+      carry_6m: {type: REAL, description: "Carry of the CMT as a percentage of face value for 6 months."}
+      carry_1y: {type: REAL, description: "Carry of the CMT as a percentage of face value for 1 year."}
+      roll_1m: {type: REAL, description: "Roll of the CMT as a percentage of face value for 1 month."}
+      roll_3m: {type: REAL, description: "Roll of the CMT as a percentage of face value for 3 months."}
+      roll_6m: {type: REAL, description: "Roll of the CMT as a percentage of face value for 6 months."}
+      roll_1y: {type: REAL, description: "Roll of the CMT as a percentage of face value for 1 year."}
+      carry_roll_1m: {type: REAL, description: "Carry roll of the CMT as a percentage of face value for 1 month."}
+      carry_roll_3m: {type: REAL, description: "Carry roll of the CMT as a percentage of face value for 3 months."}
+      carry_roll_6m: {type: REAL, description: "Carry roll of the CMT as a percentage of face value for 6 months."}
+      carry_roll_1y: {type: REAL, description: "Carry roll of the CMT as a percentage of face value for 1 year."}
+      asw_spread_1m: {type: REAL, description: "ASW spread of the CMT as a percentage of face value for 1 month."}
+      asw_spread_3m: {type: REAL, description: "ASW spread of the CMT as a percentage of face value for 3 months."}
+      asw_spread_6m: {type: REAL, description: "ASW spread of the CMT as a percentage of face value for 6 months."}
+      asw_spread_1y: {type: REAL, description: "ASW spread of the CMT as a percentage of face value for 1 year."}
+      curve_settings: {type: TEXT, description: "The settings used on the CMT curve to compute the analytics."}
+
+
+examples:
+  - q: "What 10Y CMT clean prices did we compute for US Treasuries?"
+    sql: >
+      SELECT valuation_date, clean_price, yield_pct
+      FROM cmt_prices
+      WHERE issuer = 'USA' AND tenor_label = '10Y'
+      ORDER BY valuation_date
+  - q: "Latest German CMT pricing run"
+    sql: >
+      SELECT *
+      FROM cmt_prices
+      WHERE issuer = 'DEU'
+      ORDER BY created_at DESC
+      LIMIT 13
+  - q: "How many pricing runs are in this session?"
+    sql: >
+      SELECT COUNT(*) AS run_count FROM calculation_log
