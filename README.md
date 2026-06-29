@@ -1,7 +1,7 @@
 # cheapquant-fixed-income
 
 Interactive agent for **QuantLib** fixed-income analytics on government bonds.
-Yield-curve inputs come from a read-only SQLite database; QuantLib outputs are
+Yield-curve inputs come from a read-only SQLite or DuckDB database; QuantLib outputs are
 cached in SQLite via [framecache](https://github.com/hraoyama/FrameCache) and
 queryable through an LLM using [mcp-data](https://github.com/hraoyama/mcp_data).
 
@@ -9,18 +9,50 @@ Available as both a **terminal CLI** (`cqfi`) and a **GUI chat window** (`cqfi-g
 
 ## Features
 
-- **CMT pricing** — bootstrap a yield curve from zero/par pillars and price
-  constant-maturity zero-coupon bonds per issuer
-- **19 sovereign issuers** — USA, DEU, GBR (with ex-dividend), JPN, and 15 more
-  (AUS, AUT, BEL, BRA, CAN, CHE, CHN, ESP, FRA, GRC, IND, IRL, ITA, KOR, NLD,
-  PRT, RUS) — all with real-life calendar and day-count conventions
-- **Curve interpolation menu** — 18 methods across three QuantLib families
-  (InterpolatedZeroCurve, PiecewiseYieldCurve, FittedBondDiscountCurve)
-- **Dual-dataset agent** — one interface for read-only `input_data.db` questions
-  and cached analytics (`quant_cache`)
-- **Session persistence** — save/load cache snapshots by session id
-- **GUI chat window** — `cqfi-gui` opens a PySide6 window with inline data
-  tables, auto-generated plots, and Download/Copy buttons
+CheapQuant FI is built around **natural language**: you describe what you want,
+the agent chooses tools and data sources, returns structured feedback, and (in
+the GUI) renders tables and charts from the result.
+
+![Example: 5Y CMT yields plotted from a natural-language query](resource/png/5ycmts.png)
+
+### What you can drive by conversation
+
+- **QuantLib** — price CMTs, bootstrap curves, and run fixed-income analytics
+  (19 sovereign issuers, 18 curve interpolation/fitting methods). Ask in plain
+  language; the agent invokes the QuantLib layer and explains what it computed.
+  More features in dev.
+
+- **Analytics cache** — every tool and pricing call is stored in a
+  [framecache](https://github.com/hraoyama/FrameCache) SQLite cache. Query it
+  with `cache:` prompts to review past runs, compare sessions, or pick up where
+  you left off without recomputing.
+
+- **Your databases (SQLite / DuckDB)** — attach read-only user datasets (yield
+  inputs, bond universes, custom tables) described by YAML semantics. The agent
+  plans SQL, runs it through [mcp-data](https://github.com/hraoyama/mcp_data),
+  and surfaces the answer as text, a table, or a plot.
+
+- **Mix and match** — combine sources in one flow: pull a curve from
+  `input_data`, price a CMT with QuantLib, write results to the cache, then ask
+  “plot the 5Y CMTs we just stored for Germany” — data and tools are composable,
+  not siloed.
+
+### On the roadmap *(in development)*
+
+- **Plug-in user tools** — register your own Python callables as agent tools
+  alongside the built-in QuantLib and SQL paths.
+
+- **Historical analytics database** — persist bond/CMT analytics over time
+  (`bond_analytics` DuckDB/SQLite) for longitudinal queries and reporting. Or plug in your own database for this.
+
+### Interfaces
+
+- **`cqfi` (CLI)** — interactive REPL with `input:` / `cache:` prefixes and
+  direct commands (`price cmt …`, session save/load).
+
+- **`cqfi-gui` (GUI)** — PySide6 chat window: Markdown replies, sortable result
+  tables, auto-generated plotnine charts (see screenshot above), Download/Copy
+  actions, and plot/table settings.
 
 ## Setup
 
@@ -89,18 +121,6 @@ opt in (requires `LANGCHAIN_API_KEY`).
 uv run cqfi-gui
 uv run cqfi-gui --config config/cqfi_gui.yaml
 ```
-
-The GUI window provides:
-
-- **Chat panel** — type natural-language questions; responses rendered as
-  formatted Markdown with syntax-highlighted code blocks
-- **Results table** — last query result shown in a sortable, copyable table
-- **Visualization panel** — auto-generated plot from the result data;
-  date/time columns are used as the x-axis automatically
-- **Markdown table detection** — if the LLM answer itself contains a
-  date-indexed table the GUI displays it directly (no extra SQL round-trip)
-- **Download / Copy Data / Copy Chart** action buttons
-- **Settings** — UI theme, plot style, and download format/directory
 
 `cqfi-gui` reads `config/cqfi_gui.yaml` first, falling back to `config/cqfi.yaml`.
 Set `ANTHROPIC_API_KEY` in `.env` to enable LLM-powered queries.
