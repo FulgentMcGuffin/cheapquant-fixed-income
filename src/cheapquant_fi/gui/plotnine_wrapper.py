@@ -264,26 +264,51 @@ def format_table_cell(value) -> str:
     return value_str
 
 
-def coerce_date_columns(df: pl.DataFrame) -> pl.DataFrame:
-    """Parse date-like string x columns so tables and plots use real dates."""
+def first_column_date_parse_rate(df: pl.DataFrame) -> float:
+    """Fraction of non-empty first-column values that parse as dates."""
+    if df.is_empty():
+        return 0.0
+
+    first_col = df.columns[0]
+    dtype = df.schema.get(first_col)
+    if dtype in (pl.Date, pl.Datetime):
+        return 1.0
+    if dtype not in (pl.Utf8, pl.String):
+        return 0.0
+
+    values = df[first_col].to_list()
+    non_empty = [value for value in values if value is not None and str(value).strip()]
+    if not non_empty:
+        return 0.0
+
+    parsed = sum(1 for value in non_empty if parse_flexible_datetime(value) is not None)
+    return parsed / len(non_empty)
+
+
+def coerce_date_columns(df: pl.DataFrame, *, threshold: float = 0.8) -> pl.DataFrame:
+    """Parse the first column as dates when most values are date-like strings.
+
+    If fewer than *threshold* of non-empty values parse successfully the first
+    column is left unchanged (typically as ``Utf8``) so the table keeps the
+    original strings and the plot can use a categorical x-axis.
+    """
     if df.is_empty():
         return df
 
-    x_col, _ = infer_plot_columns(df)
-    dtype = df.schema.get(x_col)
+    first_col = df.columns[0]
+    dtype = df.schema.get(first_col)
+    if dtype in (pl.Date, pl.Datetime):
+        return df
     if dtype not in (pl.Utf8, pl.String):
         return df
-
-    parsed = df.with_columns(
-        pl.col(x_col)
-        .map_elements(parse_flexible_datetime, return_dtype=pl.Datetime("us"))
-        .alias(x_col)
-    )
-
-    if parsed[x_col].null_count() >= df.height:
+    if first_column_date_parse_rate(df) < threshold:
         return df
 
-    return parsed
+    return df.with_columns(
+        pl.col(first_col)
+        .map_elements(parse_flexible_datetime, return_dtype=pl.Datetime("us"))
+        .alias(first_col)
+    )
 
 
 def build_x_numeric_lookup(x_values: list) -> dict[float, str]:
@@ -294,6 +319,8 @@ def build_x_numeric_lookup(x_values: list) -> dict[float, str]:
     for idx, value in enumerate(x_values):
         normalized = normalize_x_value(value)
         label = format_display_date(normalized if normalized is not value else value)
+        if not label and value is not None:
+            label = str(value).strip()
         if not label:
             continue
 
@@ -595,17 +622,16 @@ def process_df_for_ggplot(
 
 
 def infer_plot_columns(df: pl.DataFrame) -> tuple[str, list[str]]:
-    """Pick x/y columns from a generic query result."""
+    """Pick x/y columns from a generic query result.
+
+    The first column is always the x-axis. Remaining numeric columns — or, if
+    none exist, the next few non-x columns — supply the y series.
+    """
     if df.is_empty():
         return "index", []
 
     cols = df.columns
     x_col = cols[0]
-    for col in cols:
-        lower = col.lower()
-        if "date" in lower or "time" in lower or "month" in lower or "year" in lower:
-            x_col = col
-            break
 
     numeric_types = {
         pl.Float64,

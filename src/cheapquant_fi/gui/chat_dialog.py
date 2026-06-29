@@ -168,7 +168,7 @@ def _parse_markdown_table_lines(lines: list[str]) -> pl.DataFrame | None:
     except Exception:
         return None
 
-    # Cast first column to the first matching date/datetime type.
+    # Cast first column to the first matching date/datetime type when possible.
     first_col = headers[0]
     for dtype, fmt in _DATE_FORMATS:
         try:
@@ -178,7 +178,7 @@ def _parse_markdown_table_lines(lines: list[str]) -> pl.DataFrame | None:
             break
         except Exception:
             continue
-    # If no format matched, leave as string — coerce_date_columns handles it downstream.
+    # If no format matched, leave as string so table/plot use a categorical x-axis.
 
     # Cast remaining columns to Float64 where possible.
     for col in headers[1:]:
@@ -633,6 +633,7 @@ class ChatDialog(QMainWindow):
         self._set_busy(False)
 
     def _update_table(self, df: pl.DataFrame) -> None:
+        self._plot.clear_plot()
         self._table.setSortingEnabled(False)
         self._table.clearContents()
         self._table.setRowCount(0)

@@ -5,7 +5,7 @@
 paths:
   # input_db: C:/data/sqlitedb/input_data.db
   # bond_analytics_db: D:/data/sqlitedb/bond_analytics.db
-  input_db: C:/data/duckdb/input_data.duckdb
+  input_db: D:/data/duckdb/input_data.duckdb
   bond_analytics_db: D:/data/duckdb/bond_analytics.duckdb
   input_semantics: D:/Code/mcp_data/semantics/input_data.yaml
   cache_db: ./data/cache/active_cache.db
