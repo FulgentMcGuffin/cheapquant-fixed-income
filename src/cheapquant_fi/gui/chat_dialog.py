@@ -352,7 +352,7 @@ class ChatDialog(QMainWindow):
         self._last_dataframe: pl.DataFrame | None = None
         self._chat_log: list[str] = []
 
-        self.setWindowTitle("MCP Data Chat")
+        self.setWindowTitle("CheapQuant Fixed Income")
         self.resize(1100, 984)
         self.setWindowFlags(
             self.windowFlags() | Qt.WindowType.FramelessWindowHint
