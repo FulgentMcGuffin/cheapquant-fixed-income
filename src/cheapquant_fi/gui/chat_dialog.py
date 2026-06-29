@@ -377,7 +377,7 @@ class ChatDialog(QMainWindow):
         shell_layout.addWidget(
             TitleBar(
                 self,
-                "MCP Data Chat",
+                "CheapQuant Fixed Income",
                 shell,
                 trailing=self._settings_btn,
                 subtitle="Natural language data queries",
