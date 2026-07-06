@@ -44,7 +44,34 @@ vocabulary:
     Saudi Arabia: SAU
     Singapore: SGP
     Sweden: SWE
-conventions:
+  currencies:
+    United States: USD
+    Euro: EUR
+    British Pound: GBP
+    Japanese Yen: JPY
+    Australian Dollar: AUD
+    Canadian Dollar: CAD
+    Swiss Franc: CHF
+    Chinese Yuan: CNY
+    Indian Rupee: INR
+    Brazilian Real: BRL
+    Russian Ruble: RUB
+    South African Rand: ZAR
+    Mexican Peso: MXN
+    Indonesian Rupiah: IDR
+    Turkish Lira: TRY
+    Saudi Riyal: SAR
+    UAE Dirham: AED
+    Norwegian Krone: NOK
+    Swedish Krona: SEK
+    Danish Krone: DKK
+    Hungarian Forint: HUF
+    Polish Zloty: PLN
+    Romanian Leu: RON
+    Bulgarian Lev: BGN
+    Croatian Kuna: HRK
+
+conventions:  
   date: >
     All date columns (e.g. trade_date, maturity_date, settlement_date, issue_date, first_coupon_date  etc.) are TEXT stored as 'YYYY-MM-DD'. Filter ranges with
     date >= '<start>' AND date <= '<end>'.
@@ -58,6 +85,7 @@ tables:
       A table that will hold the tenor pillars structure that are available for analytics for each issuer at a particular date.
     columns:
       issuer: {type: TEXT, description: "Country code, e.g. USA, DEU. these match the issuers dictionary in the vocabulary."}
+      currency: {type: TEXT, description: "Currency code, e.g. USD, EUR. these match the currencies dictionary in the vocabulary."}
       from_date: {type: TEXT, description: "The date from which the tenor pillar structure is valid (YYYY-MM-DD)."}
       to_date: {type: TEXT, description: "The date until which the tenor pillar structure is valid (YYYY-MM-DD) - if not present, the structure is valid indefinitely."}
       6M: {type: BOOLEAN, description: "1 if the 6-month pillar is in the term structure available, 0 otherwise."}
@@ -81,9 +109,10 @@ tables:
     description: 
       A table that will hold the universe of bonds that are available for analytics.
     columns:
-      bond_id: {type: TEXT, description: "A unique identifier for the bond."}
+      bond_id: {type: TEXT, description: "A unique identifier for the bond."}      
       user_friendly_id: {type: TEXT, description: "A user defined friendly ID for the bond"}
       issuer: {type: TEXT, description: "Country code, e.g. USA, DEU. these match the issuers dictionary in the vocabulary."}
+      currency: {type: TEXT, description: "Currency code, e.g. USD, EUR. these match the currencies dictionary in the vocabulary."}
       coupon: {type: REAL, description: "Coupon rate as a percentage."}      
       maturity: {type: TEXT, description: "Maturity date (YYYY-MM-DD)."}
       issue_date: {type: TEXT, description: "Issue date (YYYY-MM-DD)."}
@@ -100,6 +129,9 @@ tables:
       created_at: {type: TEXT, description: "UTC timestamp when the analytics were computed."}
       trade_date: {type: TEXT, description: "the trade date (YYYY-MM-DD) of the trade."}
       settlement_date: {type: TEXT, description: "the settlement date (YYYY-MM-DD) of the trade."}
+      curve_used: {type: BOOLEAN, description: "1 if the bond curve was used to compute the analytics, 0 otherwise."}
+      curve_settings: {type: TEXT, description: "The settings used on the bond curve to compute the analytics."}
+      input_column: {type: TEXT, description: "The column (e.g. yield_to_maturity,clean_price,etc.) used as an input to compute the analytics. If present, curve_used must be 0."}
       yield_to_maturity: {type: REAL, description: "Yield to maturity of the bond as a percentage."}
       clean_price: {type: REAL, description: "Clean Price of the bond as a percentage of face value."}
       dirty_price: {type: REAL, description: "Dirty Price of the bond as a percentage of face value."}
@@ -110,6 +142,7 @@ tables:
       gamma_sensitivity: {type: REAL, description: "Dollar convexity sensitivity of the bond as a percentage of face value."}
       mm_cmt_yield: {type: REAL, description: "yield of the maturity matched CMT for this bond as a percentage."}
       mm_fc_cmt_yield: {type: REAL, description: "yield of the maturity matched CMT with the same coupon as this bond as a percentage."}      
+      z_spread: {type: REAL, description: "Z-spread of the bond in basis points (100 basis points = 1%)"}
       repo_rate_1m: {type: REAL, description: "Repo rate of the bond as a percentage using in the carry calculation for 1 month."}
       repo_rate_3m: {type: REAL, description: "Repo rate of the bond as a percentage using in the carry calculation for 3 months."}
       repo_rate_6m: {type: REAL, description: "Repo rate of the bond as a percentage using in the carry calculation for 6 months."}
@@ -130,7 +163,6 @@ tables:
       asw_spread_3m: {type: REAL, description: "ASW spread of the bond as a percentage of face value for 3 months."}
       asw_spread_6m: {type: REAL, description: "ASW spread of the bond as a percentage of face value for 6 months."}
       asw_spread_1y: {type: REAL, description: "ASW spread of the bond as a percentage of face value for 1 year."}
-      curve_settings: {type: TEXT, description: "The settings used on the bond curve to compute the analytics."}
 
 cmt_analytics:
     description: 
@@ -142,6 +174,9 @@ cmt_analytics:
       trade_date: {type: TEXT, description: "the trade date (YYYY-MM-DD) of the trade."}
       settlement_date: {type: TEXT, description: "the settlement date (YYYY-MM-DD) of the trade."}
       maturity_date: {type: TEXT, description: "the maturity date (YYYY-MM-DD) of the CMT."}
+      curve_used: {type: BOOLEAN, description: "1 if the bond curve was used to compute the analytics, 0 otherwise."}
+      curve_settings: {type: TEXT, description: "The settings used on the (bond) curve to compute the analytics of the CMT"}
+      input_column: {type: TEXT, description: "The column (e.g. yield_to_maturity,clean_price,etc.) used as an input to compute the analytics. If present, curve_used must be 0."}
       yield_to_maturity: {type: REAL, description: "Yield to maturity of the CMT as a percentage."}
       clean_price: {type: REAL, description: "Clean Price of the CMT as a percentage of face value."}
       duration: {type: REAL, description: "Duration of the CMT as a percentage (Macaulay duration)."}
@@ -168,7 +203,6 @@ cmt_analytics:
       asw_spread_3m: {type: REAL, description: "ASW spread of the CMT as a percentage of face value for 3 months."}
       asw_spread_6m: {type: REAL, description: "ASW spread of the CMT as a percentage of face value for 6 months."}
       asw_spread_1y: {type: REAL, description: "ASW spread of the CMT as a percentage of face value for 1 year."}
-      curve_settings: {type: TEXT, description: "The settings used on the CMT curve to compute the analytics."}
 
 
 examples:

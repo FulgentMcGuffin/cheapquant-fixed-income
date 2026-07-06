@@ -400,15 +400,6 @@ wheels = [
 ]
 
 [[package]]
-name = "dcor"
-version = "0.1"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/2e/bc/d927eab857917f22787a45408e8d4456edf3879db27a3fb18d73a6c8101b/dcor-0.1.tar.gz", hash = "sha256:b1f30e90034a0cb119ea849f34d208115c31a909e3e3f284def3fcf5c6944ff9", size = 8578, upload-time = "2017-09-27T15:30:21.585Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/bf/db/c32e64c0db99da3dbf3ac174634245c03a40c2eeda47f7192cb61bc49733/dcor-0.1-py2.py3-none-any.whl", hash = "sha256:af262a35c356bf07d85d8eb725214150f99fd95afbab2c5ffc8317d63c6826a5", size = 9415, upload-time = "2017-09-27T15:30:20.298Z" },
-]
-
-[[package]]
 name = "distro"
 version = "1.9.0"
 source = { registry = "https://pypi.org/simple" }
@@ -502,6 +493,7 @@ name = "framecache"
 version = "0.1.0"
 source = { editable = "../framecache" }
 dependencies = [
+    { name = "duckdb" },
     { name = "numpy" },
     { name = "pandas" },
     { name = "pillow" },
@@ -519,6 +511,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "duckdb", specifier = ">=1.5.4" },
     { name = "numpy", specifier = ">=2.4.6" },
     { name = "pandas", specifier = ">=3.0.3" },
     { name = "pillow", specifier = ">=12.2.0" },
@@ -1040,7 +1033,6 @@ version = "0.1.0"
 source = { editable = "../mcp_data" }
 dependencies = [
     { name = "boto3" },
-    { name = "dcor" },
     { name = "duckdb" },
     { name = "fastapi" },
     { name = "httpx" },
@@ -1068,7 +1060,6 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "boto3", specifier = ">=1.43.34" },
-    { name = "dcor" },
     { name = "duckdb", specifier = ">=1.5.4" },
     { name = "fastapi", specifier = ">=0.137.2" },
     { name = "httpx", specifier = ">=0.28.1" },
