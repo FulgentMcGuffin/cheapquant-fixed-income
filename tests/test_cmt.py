@@ -93,7 +93,7 @@ def test_make_fixed_rate_bond_gbr():
         ql.DateGeneration.Backward,
         False,
     )
-    bond = gbr.make_fixed_rate_bond(schedule, [0.04], issue_date=issue_date)
+    bond = gbr.make_QL_fixed_rate_bond(schedule, [0.04], issue_date=issue_date)
     assert bond is not None
 
     # Settlement 27 Jan 2025 is after the ex-div date (22 Jan 2025),

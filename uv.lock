@@ -232,6 +232,8 @@ name = "cheapquant-fixed-income"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "anthropic" },
+    { name = "decorules" },
     { name = "duckdb" },
     { name = "framecache" },
     { name = "mcp-data" },
@@ -250,6 +252,8 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "anthropic", specifier = ">=0.112.0" },
+    { name = "decorules", git = "https://github.com/FulgentMcGuffin/decorules.git" },
     { name = "duckdb", specifier = ">=1.5.0" },
     { name = "framecache", editable = "../framecache" },
     { name = "mcp-data", editable = "../mcp_data" },
@@ -398,6 +402,11 @@ sdist = { url = "https://files.pythonhosted.org/packages/a9/95/a3dbbb5028f35eafb
 wheels = [
     { url = "https://files.pythonhosted.org/packages/e7/05/c19819d5e3d95294a6f5947fb9b9629efb316b96de511b418c53d245aae6/cycler-0.12.1-py3-none-any.whl", hash = "sha256:85cef7cff222d8644161529808465972e51340599459b8ac3ccbac5a854e0d30", size = 8321, upload-time = "2023-10-07T05:32:16.783Z" },
 ]
+
+[[package]]
+name = "decorules"
+version = "0.0.9"
+source = { git = "https://github.com/FulgentMcGuffin/decorules.git#f6ebb9302394d941195f084ebe601af7224a7b53" }
 
 [[package]]
 name = "distro"
@@ -1086,6 +1095,10 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [{ name = "pytest", specifier = ">=9.1.1" }]
+gui = [
+    { name = "matplotlib", specifier = ">=3.8.0" },
+    { name = "pyside6", specifier = ">=6.11.1" },
+]
 
 [[package]]
 name = "mizani"

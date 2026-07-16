@@ -41,7 +41,7 @@ ANALYTICS_METRIC_FIELDS: tuple[str, ...] = (
 
 
 @dataclass
-class FixedIncomeAnalytics:
+class FixedIncomeAnalyticsOutput:
     """Computed analytics for a bond or CMT.
 
     Field names match the numeric metric columns in ``bond_analytics`` /

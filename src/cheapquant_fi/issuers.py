@@ -3,11 +3,16 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import date
 from enum import Enum
 from typing import Callable
 
 import QuantLib as ql
 
+from decorules import (
+    HasRulesActions,
+    raise_if_false_on_instance,
+)
 
 class RateType(str, Enum):
     ZERO = "zero"
@@ -48,8 +53,18 @@ class ExDividendConvention:
 _NO_EX_COUPON: tuple = (ql.Period(), ql.NullCalendar(), ql.Unadjusted, False)
 
 
+def _to_ql_date(value: date) -> ql.Date:
+    return ql.Date(value.day, value.month, value.year)
+
+
+def _from_ql_date(value: ql.Date) -> date:
+    return date(value.year(), value.month(), value.dayOfMonth())
+
+
 @dataclass(frozen=True)
-class IssuerProfile:
+@raise_if_false_on_instance(lambda inst: inst.settlement_days >= 0,
+                              ValueError, "settlement_days must be non-negative")
+class IssuerProfile(metaclass=HasRulesActions):
     """QuantLib calendar and market conventions for a sovereign issuer."""
 
     source_code: str
@@ -65,7 +80,17 @@ class IssuerProfile:
     def calendar(self) -> ql.Calendar:
         return self.calendar_factory()
 
-    def make_fixed_rate_bond(
+    def settlement_date(self, trade_date: date) -> date:
+        """Return settlement date as trade date plus ``settlement_days`` business days."""
+        ql_settlement = _to_ql_date(trade_date)
+        calendar = self.calendar()
+        for _ in range(self.settlement_days):
+            ql_settlement = calendar.advance(
+                ql_settlement, 1, ql.Days, ql.Following
+            )
+        return _from_ql_date(ql_settlement)
+
+    def make_QL_fixed_rate_bond(
         self,
         schedule: ql.Schedule,
         coupon_rates: list[float],

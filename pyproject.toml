@@ -14,6 +14,8 @@ dependencies = [
     "python-dotenv>=1.2.2",
     "plotnine>=0.15.7",
     "pyside6>=6.11.1",
+    "anthropic>=0.112.0",
+    "decorules",
 ]
 
 [project.scripts]
@@ -35,6 +37,7 @@ packages = ["src/cheapquant_fi"]
 [tool.uv.sources]
 framecache = { path = "../framecache", editable = true }
 mcp-data = { path = "../mcp_data", editable = true }
+decorules = { git = "https://github.com/FulgentMcGuffin/decorules.git" }
 
 [tool.uv]
 override-dependencies = [

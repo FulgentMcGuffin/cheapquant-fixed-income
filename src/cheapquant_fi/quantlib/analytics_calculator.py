@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from datetime import date
 from typing import Protocol, runtime_checkable
 
 import QuantLib as ql
 
 from cheapquant_fi.issuers import IssuerProfile, resolve_issuer
-from cheapquant_fi.quantlib.analytics import FixedIncomeAnalytics
+from cheapquant_fi.quantlib.analytics_output import FixedIncomeAnalyticsOutput
+from cheapquant_fi.quantlib.analytics_input import (
+    BondAnalyticsInput,
+    CmtAnalyticsInput,
+)
 from cheapquant_fi.quantlib.market_context import MarketContext
 from cheapquant_fi.tenors import TENOR_COLUMN_TO_YEARS, label_to_column
 
@@ -27,59 +30,26 @@ def _tenor_label_to_years(label: str) -> float:
     return TENOR_COLUMN_TO_YEARS[column]
 
 
-@dataclass(frozen=True)
-class BondAnalyticsRequest:
-    """Inputs required to price a fixed-coupon government bond."""
-
-    issuer: str
-    coupon: float
-    maturity_date: date
-    settlement_date: date
-    trade_date: date | None = None
-    issue_date: date | None = None
-    face_amount: float = 100.0
-    input_column: str | None = None
-    input_value: float | None = None
-
-
-@dataclass(frozen=True)
-class CmtAnalyticsRequest:
-    """Inputs required to price a synthetic constant-maturity treasury.
-
-    When *coupon* is ``None`` the CMT is zero-coupon (default).  Set *coupon*
-    to a percentage (e.g. ``2.5`` for 2.5 %) to price a fixed-coupon CMT with
-    the issuer's payment frequency.
-    """
-
-    issuer: str
-    tenor_label: str
-    settlement_date: date
-    trade_date: date | None = None
-    coupon: float | None = None
-    input_column: str | None = None
-    input_value: float | None = None
-
-
 @runtime_checkable
 class AnalyticsCalculator(Protocol):
-    """Interface for computing :class:`FixedIncomeAnalytics` on bonds and CMTs."""
+    """Interface for computing :class:`FixedIncomeAnalyticsOutput` on bonds and CMTs."""
 
     def compute_bond_analytics(
         self,
-        request: BondAnalyticsRequest,
+        request: BondAnalyticsInput,
         market: MarketContext,
         *,
         curve_label: str = "default",
-    ) -> FixedIncomeAnalytics:
+    ) -> FixedIncomeAnalyticsOutput:
         """Return analytics for a coupon bond."""
 
     def compute_cmt_analytics(
         self,
-        request: CmtAnalyticsRequest,
+        request: CmtAnalyticsInput,
         market: MarketContext,
         *,
         curve_label: str = "default",
-    ) -> FixedIncomeAnalytics:
+    ) -> FixedIncomeAnalyticsOutput:
         """Return analytics for a constant-maturity instrument (zero- or fixed-coupon)."""
 
 
@@ -88,38 +58,38 @@ class QuantLibAnalyticsCalculator:
 
     def compute_bond_analytics(
         self,
-        request: BondAnalyticsRequest,
+        request: BondAnalyticsInput,
         market: MarketContext,
         *,
         curve_label: str = "default",
-    ) -> FixedIncomeAnalytics:
+    ) -> FixedIncomeAnalyticsOutput:
         issuer = resolve_issuer(request.issuer)
         settlement = _to_ql_date(request.settlement_date)
         ql.Settings.instance().evaluationDate = settlement
 
-        bond = self._build_fixed_rate_bond(issuer, request)
+        qlbond = self._build_fixed_rate_bond(issuer, request)
         curve_handle = self._bond_curve(market, issuer.source_code, curve_label)
         use_curve = self._uses_curve(request)
 
         if use_curve:
-            bond.setPricingEngine(ql.DiscountingBondEngine(curve_handle))
+            qlbond.setPricingEngine(ql.DiscountingBondEngine(curve_handle))
             metrics = self._bond_metrics_from_priced_bond(
-                bond, issuer, settlement, curve_handle=curve_handle
+                qlbond, issuer, settlement, curve_handle=curve_handle
             )
         else:
             metrics = self._bond_metrics_from_input(
-                bond, issuer, settlement, request.input_column, request.input_value
+                qlbond, issuer, settlement, request.input_column, request.input_value
             )
 
         return metrics
 
     def compute_cmt_analytics(
         self,
-        request: CmtAnalyticsRequest,
+        request: CmtAnalyticsInput,
         market: MarketContext,
         *,
         curve_label: str = "default",
-    ) -> FixedIncomeAnalytics:
+    ) -> FixedIncomeAnalyticsOutput:
         issuer = resolve_issuer(request.issuer)
         settlement = _to_ql_date(request.settlement_date)
         ql.Settings.instance().evaluationDate = settlement
@@ -149,7 +119,7 @@ class QuantLibAnalyticsCalculator:
             include_accrued=has_coupon,
         )
 
-    def _uses_curve(self, request: BondAnalyticsRequest | CmtAnalyticsRequest) -> bool:
+    def _uses_curve(self, request: BondAnalyticsInput | CmtAnalyticsInput) -> bool:
         if request.input_column is None:
             return True
         if request.input_value is None:
@@ -169,7 +139,7 @@ class QuantLibAnalyticsCalculator:
     def _build_fixed_rate_bond(
         self,
         issuer: IssuerProfile,
-        request: BondAnalyticsRequest,
+        request: BondAnalyticsInput,
     ) -> ql.FixedRateBond:
         calendar = issuer.calendar()
         issue = _to_ql_date(request.issue_date or request.settlement_date)
@@ -186,7 +156,7 @@ class QuantLibAnalyticsCalculator:
             ql.DateGeneration.Backward,
             False,
         )
-        return issuer.make_fixed_rate_bond(
+        return issuer.make_QL_fixed_rate_bond(
             schedule,
             [request.coupon / 100.0],
             redemption=request.face_amount,
@@ -243,7 +213,7 @@ class QuantLibAnalyticsCalculator:
             ql.DateGeneration.Backward,
             False,
         )
-        return issuer.make_fixed_rate_bond(
+        return issuer.make_QL_fixed_rate_bond(
             schedule,
             [coupon / 100.0],
             issue_date=settlement,
@@ -257,7 +227,7 @@ class QuantLibAnalyticsCalculator:
         *,
         curve_handle: ql.YieldTermStructureHandle | None = None,
         include_accrued: bool = True,
-    ) -> FixedIncomeAnalytics:
+    ) -> FixedIncomeAnalyticsOutput:
         clean = bond.cleanPrice()
         dirty = bond.dirtyPrice()
         accrued = (dirty - clean) if include_accrued else 0.0
@@ -306,7 +276,7 @@ class QuantLibAnalyticsCalculator:
                 * 10_000.0
             )
 
-        return FixedIncomeAnalytics(
+        return FixedIncomeAnalyticsOutput(
             yield_to_maturity=yld * 100.0,
             clean_price=clean,
             dirty_price=dirty,
@@ -327,7 +297,7 @@ class QuantLibAnalyticsCalculator:
         input_value: float | None,
         *,
         include_accrued: bool = True,
-    ) -> FixedIncomeAnalytics:
+    ) -> FixedIncomeAnalyticsOutput:
         if input_column not in _INPUT_PRICE_FIELDS:
             raise ValueError(
                 f"Unsupported input_column {input_column!r}; "
@@ -365,7 +335,7 @@ class QuantLibAnalyticsCalculator:
             bond, yld, dc, comp, freq, settlement
         )
 
-        return FixedIncomeAnalytics(
+        return FixedIncomeAnalyticsOutput(
             yield_to_maturity=yld * 100.0,
             clean_price=clean,
             dirty_price=dirty,
