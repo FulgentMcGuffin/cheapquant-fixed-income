@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import date
 
 from cheapquant_fi.issuers import ISSUERS
-from cheapquant_fi.quantlib.instruments import Bond
+from cheapquant_fi.instruments import Bond
 
 
 @dataclass(frozen=True)

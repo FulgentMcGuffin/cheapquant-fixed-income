@@ -1,19 +1,15 @@
-"""Analytics calculator interface and QuantLib implementation for bonds and CMTs."""
+"""QuantLib implementation of :class:`~cheapquant_fi.analytics_calculator.AnalyticsCalculator`."""
 
 from __future__ import annotations
 
 from datetime import date
-from typing import Protocol, runtime_checkable
 
 import QuantLib as ql
 
+from cheapquant_fi.analytics_input import BondAnalyticsInput, CmtAnalyticsInput
+from cheapquant_fi.analytics_output import FixedIncomeAnalyticsOutput
 from cheapquant_fi.issuers import IssuerProfile, resolve_issuer
-from cheapquant_fi.quantlib.analytics_output import FixedIncomeAnalyticsOutput
-from cheapquant_fi.quantlib.analytics_input import (
-    BondAnalyticsInput,
-    CmtAnalyticsInput,
-)
-from cheapquant_fi.quantlib.market_context import MarketContext
+from cheapquant_fi.quantlib.quantlib_market_context import MarketContext
 from cheapquant_fi.tenors import TENOR_COLUMN_TO_YEARS, label_to_column
 
 _INPUT_PRICE_FIELDS = frozenset({"clean_price", "yield_to_maturity"})
@@ -28,29 +24,6 @@ def _tenor_label_to_years(label: str) -> float:
     if column is None:
         raise ValueError(f"Unknown tenor label: {label!r}")
     return TENOR_COLUMN_TO_YEARS[column]
-
-
-@runtime_checkable
-class AnalyticsCalculator(Protocol):
-    """Interface for computing :class:`FixedIncomeAnalyticsOutput` on bonds and CMTs."""
-
-    def compute_bond_analytics(
-        self,
-        request: BondAnalyticsInput,
-        market: MarketContext,
-        *,
-        curve_label: str = "default",
-    ) -> FixedIncomeAnalyticsOutput:
-        """Return analytics for a coupon bond."""
-
-    def compute_cmt_analytics(
-        self,
-        request: CmtAnalyticsInput,
-        market: MarketContext,
-        *,
-        curve_label: str = "default",
-    ) -> FixedIncomeAnalyticsOutput:
-        """Return analytics for a constant-maturity instrument (zero- or fixed-coupon)."""
 
 
 class QuantLibAnalyticsCalculator:

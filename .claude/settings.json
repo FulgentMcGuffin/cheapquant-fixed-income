@@ -1,0 +1,17 @@
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash .claude/validate-skill-hook.sh",
+            "shell": "bash",
+            "timeout": 30,
+            "statusMessage": "Validating skills..."
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -9,8 +9,8 @@ Build a bond curve handle and register it on a :class:`MarketContext`::
     import polars as pl
 
     from cheapquant_fi.issuers import resolve_issuer
-    from cheapquant_fi.quantlib.curve import build_zero_curve
-    from cheapquant_fi.quantlib.market_context import CurveCollection, FXC, MarketContext
+    from cheapquant_fi.quantlib.quantlib_curve import build_zero_curve
+    from cheapquant_fi.quantlib.quantlib_market_context import CurveCollection, FXC, MarketContext
 
     as_of = date(2020, 1, 2)
     issuer = resolve_issuer("USA")
@@ -126,7 +126,7 @@ class CurveCollection:
     """Yield curves as of a single valuation date or datetime.
 
     Bond curves are indexed by sovereign issuer code (``USA``, ``DEU``, …) as
-    built by :func:`cheapquant_fi.quantlib.curve.build_zero_curve`.  Swap curves
+    built by :func:`cheapquant_fi.quantlib.quantlib_curve.build_zero_curve`.  Swap curves
     will be indexed by :class:`SwapCurveKey` once implemented.
     """
 
@@ -239,37 +239,4 @@ class MarketContext:
 
     def fxc_labels(self) -> list[str]:
         return sorted(self.fx_rates.keys())
-    
-if __name__ == "__main__":
-    from datetime import date
 
-    import polars as pl
-
-    from cheapquant_fi.issuers import resolve_issuer
-    from cheapquant_fi.quantlib.curve import build_zero_curve
-    from cheapquant_fi.quantlib.market_context import CurveCollection, FXC, MarketContext
-
-    as_of = date(2020, 1, 2)
-    issuer = resolve_issuer("USA")
-
-    rates_df = pl.DataFrame(
-        {
-            "tenor_column": ["Y001p0", "Y005p0", "Y010p0"],
-            "tenor_label": ["1Y", "5Y", "10Y"],
-            "tenor_years": [1.0, 5.0, 10.0],
-            "rate_pct": [1.5, 2.0, 2.5],
-        }
-    )
-    curve_handle, _ = build_zero_curve(issuer, as_of, rates_df)
-
-    curves = CurveCollection(as_of=as_of)
-    curves.set_bond_curve("USA", curve_handle)
-
-    fx = FXC(as_of=as_of)
-    fx.set_rate("AUD", "USD", 1.45)
-
-    ctx = MarketContext()
-    ctx.add_curve_collection(curves)
-    ctx.add_fxc(fx)
-
-    usa_curve = ctx.curve_collection().bond_curve("USA")   

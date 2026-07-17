@@ -11,7 +11,7 @@ import polars as pl
 from cheapquant_fi.issuers import IssuerProfile, RateType
 
 
-class ZeroInterp(str, Enum):
+class QLZeroInterp(str, Enum):
     """Interpolation/bootstrap/fitting method for yield-curve construction.
 
     Members supported by **ZERO** input rates (``InterpolatedZeroCurve``):
@@ -101,43 +101,43 @@ class ZeroInterp(str, Enum):
 
 
 # Maps for direct zero curves (RateType.ZERO).
-_ZERO_CURVE_CLS: dict[ZeroInterp, type] = {
-    ZeroInterp.LINEAR_ZERO: ql.ZeroCurve,
-    ZeroInterp.CUBIC_ZERO: ql.CubicZeroCurve,
-    ZeroInterp.NATURAL_CUBIC_ZERO: ql.NaturalCubicZeroCurve,
-    ZeroInterp.MONOTONE_CUBIC_ZERO: ql.MonotonicCubicZeroCurve,
+_QL_ZERO_CURVE_CLS: dict[QLZeroInterp, type] = {
+    QLZeroInterp.LINEAR_ZERO: ql.ZeroCurve,
+    QLZeroInterp.CUBIC_ZERO: ql.CubicZeroCurve,
+    QLZeroInterp.NATURAL_CUBIC_ZERO: ql.NaturalCubicZeroCurve,
+    QLZeroInterp.MONOTONE_CUBIC_ZERO: ql.MonotonicCubicZeroCurve,
 }
 
 # Maps for piecewise bootstrap curves (RateType.PAR).
-_PAR_CURVE_CLS: dict[ZeroInterp, type] = {
-    ZeroInterp.LINEAR_ZERO: ql.PiecewiseLinearZero,
-    ZeroInterp.CUBIC_ZERO: ql.PiecewiseCubicZero,
-    ZeroInterp.NATURAL_CUBIC_ZERO: ql.PiecewiseNaturalCubicZero,
-    ZeroInterp.KRUGER_ZERO: ql.PiecewiseKrugerZero,
-    ZeroInterp.CONVEX_MONOTONE_ZERO: ql.PiecewiseConvexMonotoneZero,
-    ZeroInterp.LOG_LINEAR_DISCOUNT: ql.PiecewiseLogLinearDiscount,
-    ZeroInterp.LOG_CUBIC_DISCOUNT: ql.PiecewiseLogCubicDiscount,
-    ZeroInterp.NATURAL_LOG_CUBIC_DISCOUNT: ql.PiecewiseNaturalLogCubicDiscount,
-    ZeroInterp.KRUGER_LOG_DISCOUNT: ql.PiecewiseKrugerLogDiscount,
-    ZeroInterp.SPLINE_CUBIC_DISCOUNT: ql.PiecewiseSplineCubicDiscount,
-    ZeroInterp.LINEAR_FORWARD: ql.PiecewiseLinearForward,
-    ZeroInterp.FLAT_FORWARD: ql.PiecewiseFlatForward,
+_QL_PAR_CURVE_CLS: dict[QLZeroInterp, type] = {
+    QLZeroInterp.LINEAR_ZERO: ql.PiecewiseLinearZero,
+    QLZeroInterp.CUBIC_ZERO: ql.PiecewiseCubicZero,
+    QLZeroInterp.NATURAL_CUBIC_ZERO: ql.PiecewiseNaturalCubicZero,
+    QLZeroInterp.KRUGER_ZERO: ql.PiecewiseKrugerZero,
+    QLZeroInterp.CONVEX_MONOTONE_ZERO: ql.PiecewiseConvexMonotoneZero,
+    QLZeroInterp.LOG_LINEAR_DISCOUNT: ql.PiecewiseLogLinearDiscount,
+    QLZeroInterp.LOG_CUBIC_DISCOUNT: ql.PiecewiseLogCubicDiscount,
+    QLZeroInterp.NATURAL_LOG_CUBIC_DISCOUNT: ql.PiecewiseNaturalLogCubicDiscount,
+    QLZeroInterp.KRUGER_LOG_DISCOUNT: ql.PiecewiseKrugerLogDiscount,
+    QLZeroInterp.SPLINE_CUBIC_DISCOUNT: ql.PiecewiseSplineCubicDiscount,
+    QLZeroInterp.LINEAR_FORWARD: ql.PiecewiseLinearForward,
+    QLZeroInterp.FLAT_FORWARD: ql.PiecewiseFlatForward,
 }
 
 # Fitted-curve members — handled via FittedBondDiscountCurve, not piecewise.
-_FITTED_MEMBERS: frozenset[ZeroInterp] = frozenset({
-    ZeroInterp.NELSON_SIEGEL,
-    ZeroInterp.SVENSSON,
-    ZeroInterp.EXPONENTIAL_SPLINES,
-    ZeroInterp.SIMPLE_POLYNOMIAL,
-    ZeroInterp.CUBIC_BSPLINES,
+_QL_FITTED_MEMBERS: frozenset[QLZeroInterp] = frozenset({
+    QLZeroInterp.NELSON_SIEGEL,
+    QLZeroInterp.SVENSSON,
+    QLZeroInterp.EXPONENTIAL_SPLINES,
+    QLZeroInterp.SIMPLE_POLYNOMIAL,
+    QLZeroInterp.CUBIC_BSPLINES,
 })
 
-_ZERO_DEFAULT = ZeroInterp.CUBIC_ZERO
-_PAR_DEFAULT = ZeroInterp.LINEAR_ZERO
+_QL_ZERO_DEFAULT = QLZeroInterp.CUBIC_ZERO
+_QL_PAR_DEFAULT = QLZeroInterp.LINEAR_ZERO
 
 
-def _auto_bspline_knots(tenor_years: list[float]) -> list[float]:
+def _ql_auto_bspline_knots(tenor_years: list[float]) -> list[float]:
     """Generate a sensible cubic B-spline knot vector from pillar tenors.
 
     The standard convention (QuantLib's own example) uses negative pre-knots so
@@ -156,7 +156,7 @@ def _to_ql_date(value: date) -> ql.Date:
     return ql.Date(value.day, value.month, value.year)
 
 
-def _pillar_dates(
+def _ql_pillar_dates(
     settlement: ql.Date,
     calendar: ql.Calendar,
     tenor_years: list[float],
@@ -176,12 +176,12 @@ def _pillar_dates(
     return dates
 
 
-def build_zero_curve(
+def ql_build_zero_curve(
     issuer: IssuerProfile,
     valuation_date: date,
     rates_df: pl.DataFrame,
     rate_type: RateType = RateType.ZERO,
-    interpolation: ZeroInterp | None = None,
+    interpolation: QLZeroInterp | None = None,
     *,
     bspline_knots: list[float] | None = None,
     poly_degree: int = 3,
@@ -221,9 +221,9 @@ def build_zero_curve(
         When *interpolation* is not supported for the given *rate_type*.
     """
     if interpolation is None:
-        interp = _ZERO_DEFAULT if rate_type == RateType.ZERO else _PAR_DEFAULT
+        interp = _QL_ZERO_DEFAULT if rate_type == RateType.ZERO else _QL_PAR_DEFAULT
     else:
-        interp = ZeroInterp(interpolation)
+        interp = QLZeroInterp(interpolation)
 
     calendar = issuer.calendar()
     ql.Settings.instance().evaluationDate = _to_ql_date(valuation_date)
@@ -237,15 +237,15 @@ def build_zero_curve(
 
     tenor_years = rates_df["tenor_years"].to_list()
     rates = [r / 100.0 for r in rates_df["rate_pct"].to_list()]
-    pillar_dates = _pillar_dates(settlement, calendar, tenor_years)
+    pillar_dates = _ql_pillar_dates(settlement, calendar, tenor_years)
     # QuantLib interpolated zero curves use dates[0] as the reference date.
     dates = [settlement] + pillar_dates
     curve_rates = [rates[0]] + rates
 
     if rate_type == RateType.ZERO:
-        cls = _ZERO_CURVE_CLS.get(interp)
+        cls = _QL_ZERO_CURVE_CLS.get(interp)
         if cls is None:
-            valid = ", ".join(k.value for k in _ZERO_CURVE_CLS)
+            valid = ", ".join(k.value for k in _QL_ZERO_CURVE_CLS)
             raise ValueError(
                 f"ZeroInterp.{interp.name} is not supported for ZERO rate inputs. "
                 f"Valid choices: {valid}"
@@ -286,27 +286,27 @@ def build_zero_curve(
                 )
             )
 
-        if interp in _FITTED_MEMBERS:
+        if interp in _QL_FITTED_MEMBERS:
             # --- FittedBondDiscountCurve branch ---
-            if interp == ZeroInterp.NELSON_SIEGEL:
+            if interp == QLZeroInterp.NELSON_SIEGEL:
                 fitting_method = ql.NelsonSiegelFitting()
-            elif interp == ZeroInterp.SVENSSON:
+            elif interp == QLZeroInterp.SVENSSON:
                 fitting_method = ql.SvenssonFitting()
-            elif interp == ZeroInterp.EXPONENTIAL_SPLINES:
+            elif interp == QLZeroInterp.EXPONENTIAL_SPLINES:
                 fitting_method = ql.ExponentialSplinesFitting(True)
-            elif interp == ZeroInterp.SIMPLE_POLYNOMIAL:
+            elif interp == QLZeroInterp.SIMPLE_POLYNOMIAL:
                 fitting_method = ql.SimplePolynomialFitting(poly_degree)
-            elif interp == ZeroInterp.CUBIC_BSPLINES:
-                knots = bspline_knots if bspline_knots is not None else _auto_bspline_knots(tenor_years)
+            elif interp == QLZeroInterp.CUBIC_BSPLINES:
+                knots = bspline_knots if bspline_knots is not None else _ql_auto_bspline_knots(tenor_years)
                 fitting_method = ql.CubicBSplinesFitting(knots, True)
             else:  # pragma: no cover
                 raise AssertionError(f"Unhandled fitted method: {interp}")
             curve = ql.FittedBondDiscountCurve(settlement, helpers, issuer.day_count, fitting_method)
         else:
             # --- PiecewiseYieldCurve branch ---
-            cls = _PAR_CURVE_CLS.get(interp)
+            cls = _QL_PAR_CURVE_CLS.get(interp)
             if cls is None:
-                valid = ", ".join(k.value for k in _PAR_CURVE_CLS)
+                valid = ", ".join(k.value for k in _QL_PAR_CURVE_CLS)
                 raise ValueError(
                     f"ZeroInterp.{interp.name} is not supported for PAR rate inputs. "
                     f"Valid choices: {valid}"

@@ -9,7 +9,7 @@ import polars as pl
 
 from cheapquant_fi.data.rates_loader import load_curve_rates
 from cheapquant_fi.issuers import IssuerProfile, RateType, resolve_issuer
-from cheapquant_fi.quantlib.curve import ZeroInterp, build_zero_curve
+from cheapquant_fi.quantlib.quantlib_curve import QLZeroInterp, ql_build_zero_curve
 
 
 def _to_ql_date(value: date) -> ql.Date:
@@ -21,7 +21,7 @@ def price_cmts_from_rates(
     valuation_date: date,
     rates_df: pl.DataFrame,
     rate_type: RateType = RateType.ZERO,
-    interpolation: ZeroInterp | None = None,
+    interpolation: QLZeroInterp | None = None,
     *,
     bspline_knots: list[float] | None = None,
     poly_degree: int = 3,
@@ -51,7 +51,7 @@ def price_cmts_from_rates(
         ql.ModifiedFollowing,
     )
 
-    curve_handle, _ = build_zero_curve(
+    curve_handle, _ = ql_build_zero_curve(
         issuer,
         valuation_date,
         rates_df,
@@ -122,7 +122,7 @@ def price_cmts(
     source: str,
     valuation_date: str | date,
     rate_type: RateType | str = RateType.ZERO,
-    interpolation: ZeroInterp | str | None = None,
+    interpolation: QLZeroInterp | str | None = None,
     *,
     bspline_knots: list[float] | None = None,
     poly_degree: int = 3,
@@ -146,7 +146,7 @@ def price_cmts(
     if isinstance(valuation_date, str):
         valuation_date = date.fromisoformat(valuation_date)
     if isinstance(interpolation, str):
-        interpolation = ZeroInterp(interpolation)
+        interpolation = QLZeroInterp(interpolation)
 
     rates_df = load_curve_rates(
         db_path,
