@@ -45,8 +45,8 @@ def test_market_context_usa_curve_and_fx():
     fx.set_rate("AUD", "USD", 1.45)
 
     mktctx = QuantlibMarketContext()
-    mktctx.add_curve_collection(curves)
-    mktctx.add_fxc(fx)
+    mktctx.set_curve_collection(curves)
+    mktctx.set_fxc(fx)
 
     usa_curve = mktctx.curve_collection().bond_curve("USA")
     assert isinstance(usa_curve, ql.YieldTermStructureHandle)
@@ -137,3 +137,85 @@ def test_ql_build_market_context_registers_bond_par_label():
 def test_ql_build_market_context_requires_issuers():
     with pytest.raises(ValueError, match="At least one issuer"):
         ql_build_market_context(date(2020, 1, 2), [])
+
+
+def _flat_curve_handle(rate: float) -> ql.YieldTermStructureHandle:
+    curve = ql.FlatForward(
+        0,
+        ql.TARGET(),
+        ql.QuoteHandle(ql.SimpleQuote(rate)),
+        ql.Actual365Fixed(),
+    )
+    return ql.YieldTermStructureHandle(curve)
+
+
+def test_quantlib_curve_collection_merge_combines_issuers():
+    as_of = date(2020, 1, 2)
+    left = QuantLibCurveCollection(as_of=as_of)
+    right = QuantLibCurveCollection(as_of=as_of)
+    left.set_bond_curve("USA", _flat_curve_handle(0.01))
+    right.set_bond_curve("DEU", _flat_curve_handle(0.02))
+
+    merged = left | right
+
+    assert merged.as_of == as_of
+    assert merged.bond_issuers() == ["DEU", "USA"]
+    assert merged is not left
+    assert left.bond_issuers() == ["USA"]
+    assert right.bond_issuers() == ["DEU"]
+
+
+def test_quantlib_curve_collection_merge_prefers_right_on_duplicate():
+    as_of = date(2020, 1, 2)
+    left = QuantLibCurveCollection(as_of=as_of)
+    right = QuantLibCurveCollection(as_of=as_of)
+    left.set_bond_curve("USA", _flat_curve_handle(0.01))
+    right.set_bond_curve("USA", _flat_curve_handle(0.03))
+
+    merged = left | right
+
+    assert merged.bond_curve("USA") is right.bond_curve("USA")
+
+
+def test_quantlib_curve_collection_merge_rejects_different_as_of():
+    left = QuantLibCurveCollection(as_of=date(2020, 1, 2))
+    right = QuantLibCurveCollection(as_of=date(2020, 1, 3))
+
+    with pytest.raises(ValueError, match="different as_of"):
+        left | right
+
+
+def test_fxc_merge_combines_pairs():
+    as_of = date(2020, 1, 2)
+    left = FXC(as_of=as_of)
+    right = FXC(as_of=as_of)
+    left.set_rate("AUD", "USD", 1.45)
+    right.set_rate("EUR", "USD", 0.92)
+
+    merged = left | right
+
+    assert merged.as_of == as_of
+    assert set(merged.known_pairs()) == {("AUD", "USD"), ("EUR", "USD")}
+    assert merged is not left
+    assert left.known_pairs() == [("AUD", "USD")]
+    assert right.known_pairs() == [("EUR", "USD")]
+
+
+def test_fxc_merge_prefers_right_on_duplicate():
+    as_of = date(2020, 1, 2)
+    left = FXC(as_of=as_of)
+    right = FXC(as_of=as_of)
+    left.set_rate("AUD", "USD", 1.45)
+    right.set_rate("AUD", "USD", 1.50)
+
+    merged = left | right
+
+    assert merged.rate("AUD", "USD") == 1.50
+
+
+def test_fxc_merge_rejects_different_as_of():
+    left = FXC(as_of=date(2020, 1, 2))
+    right = FXC(as_of=date(2020, 1, 3))
+
+    with pytest.raises(ValueError, match="different as_of"):
+        left | right

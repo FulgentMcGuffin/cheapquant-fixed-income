@@ -70,6 +70,10 @@ def _normalize_issuer(code: str) -> str:
     return code.strip().upper()
 
 
+def _as_of_date(value: date | datetime) -> date:
+    return value.date() if isinstance(value, datetime) else value
+
+
 @dataclass
 class FXC:
     """Cross table of FX rates as of a spot or forward date.
@@ -116,6 +120,28 @@ class FXC:
     def known_pairs(self) -> list[tuple[str, str]]:
         """Return stored (ccy_for, ccy_per) pairs (not reciprocals)."""
         return list(self._rates.keys())
+
+    def __or__(self, other: FXC) -> FXC:
+        """Merge two FX tables with the same ``as_of`` date.
+
+        Stored rate pairs are combined; *other* wins on duplicate keys.
+        """
+        if not isinstance(other, FXC):
+            return NotImplemented
+        if _as_of_date(self.as_of) != _as_of_date(other.as_of):
+            raise ValueError(
+                f"Cannot merge FX tables with different as_of dates: "
+                f"{self.as_of!r} vs {other.as_of!r}"
+            )
+        return FXC(
+            as_of=self.as_of,
+            _rates={**self._rates, **other._rates},
+        )
+
+    def __ror__(self, other: FXC) -> FXC:
+        if not isinstance(other, FXC):
+            return NotImplemented
+        return other | self
 
 
 @dataclass(frozen=True)
@@ -211,6 +237,29 @@ class QuantLibCurveCollection:
     def swap_curve_keys(self) -> list[SwapCurveKey]:
         """Registered swap curve keys."""
         return list(self._swap_curves.keys())
+
+    def __or__(self, other: QuantLibCurveCollection) -> QuantLibCurveCollection:
+        """Merge two collections with the same ``as_of`` date.
+
+        Bond and swap curve dicts are combined; *other* wins on duplicate keys.
+        """
+        if not isinstance(other, QuantLibCurveCollection):
+            return NotImplemented
+        if _as_of_date(self.as_of) != _as_of_date(other.as_of):
+            raise ValueError(
+                f"Cannot merge curve collections with different as_of dates: "
+                f"{self.as_of!r} vs {other.as_of!r}"
+            )
+        return QuantLibCurveCollection(
+            as_of=self.as_of,
+            _bond_curves={**self._bond_curves, **other._bond_curves},
+            _swap_curves={**self._swap_curves, **other._swap_curves},
+        )
+
+    def __ror__(self, other: QuantLibCurveCollection) -> QuantLibCurveCollection:
+        if not isinstance(other, QuantLibCurveCollection):
+            return NotImplemented
+        return other | self
 
 
 def ql_build_curve_collections(
@@ -359,7 +408,7 @@ def ql_build_market_context(
 
     label = _BOND_CURVE_LABELS[curve_options.rate_type]
     context = QuantlibMarketContext()
-    context.add_curve_collection(collections[0], label=label)
+    context.set_curve_collection(collections[0], label=label)
     return context
 
 
@@ -372,14 +421,21 @@ class QuantlibMarketContext:
     only one instance of each type is present.
     """
 
+    as_of: date | None = None
     curve_collections: dict[str, QuantLibCurveCollection] = field(default_factory=dict)
     fx_rates: dict[str, FXC] = field(default_factory=dict)
 
-    def add_curve_collection(
+    def set_curve_collection(
         self,
         collection: QuantLibCurveCollection,
         label: str = "default",
     ) -> None:
+        if self.as_of is not None and collection.as_of != self.as_of:
+            raise ValueError(f"Collection as_of {collection.as_of} does not match context as_of {self.as_of}")
+        if self.as_of is None:
+            self.as_of = collection.as_of        
+        if label in self.curve_collections:
+            raise ValueError(f"Curve collection labelled {label} already exists")
         self.curve_collections[label] = collection
 
     def curve_collection(self, label: str = "default") -> QuantLibCurveCollection:
@@ -390,7 +446,13 @@ class QuantlibMarketContext:
                 f"No curve collection labelled {label!r}"
             ) from exc
 
-    def add_fxc(self, fxc: FXC, label: str = "default") -> None:
+    def set_fxc(self, fxc: FXC, label: str = "default") -> None:
+        if label in self.fx_rates:
+            raise ValueError(f"FX table labelled {label} already exists")
+        if self.as_of is not None and fxc.as_of != self.as_of:
+            raise ValueError(f"FX table as_of {fxc.as_of} does not match context as_of {self.as_of}")
+        if self.as_of is None:
+            self.as_of = fxc.as_of
         self.fx_rates[label] = fxc
 
     def fxc(self, label: str = "default") -> FXC:
@@ -405,3 +467,7 @@ class QuantlibMarketContext:
     def fxc_labels(self) -> list[str]:
         return sorted(self.fx_rates.keys())
 
+
+from cheapquant_fi.quantlib.quantlib_market_context_manager import auto_register_market_context
+
+auto_register_market_context(QuantlibMarketContext)
