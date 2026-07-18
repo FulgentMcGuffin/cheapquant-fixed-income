@@ -1,8 +1,7 @@
-# Semantic profile for the Bond Analytics DB (bond_analytics.db).
-
+# Semantic profile for the Bond Analytics DB (bond_analytics.duckdb/sqlite).
 
 dataset: bond_analytics
-backend: sqlite
+backend: duckdb or sqlite
 description: >
   Bond analytics database that will hold the bond (identified by ISIN or a BondID or a combination of issuer, coupon and maturity) and its analytics (e.g. yield, duration, convexity, etc.) for a particular settlement date 
 

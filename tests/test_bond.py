@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import QuantLib as ql
+import pytest
 
+from cheapquant_fi.instruments import _parse_optional_bool
 from cheapquant_fi.issuers import ISSUERS
 
 
@@ -49,3 +51,23 @@ def test_make_fixed_rate_bond_gbr():
     # definition that "22 Jan is the ex-dividend date" from which the ex-period begins.
     cum_settlement = ql.Date(21, 1, 2025)
     assert bond.accruedAmount(cum_settlement) > 0
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        (None, None),
+        ("", None),
+        (0, False),
+        (1, True),
+        ("0", False),
+        ("1", True),
+    ],
+)
+def test_parse_optional_bool(value, expected):
+    assert _parse_optional_bool(value) is expected
+
+
+def test_parse_optional_bool_rejects_non_binary_integers():
+    with pytest.raises(ValueError, match="0 or 1"):
+        _parse_optional_bool(2)

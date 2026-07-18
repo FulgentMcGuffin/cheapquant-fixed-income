@@ -21,6 +21,7 @@ BOND_UNIVERSE_FIELDS: tuple[str, ...] = (
     "accrual_start_date",
     "closest_tenor_pillar",
     "issue_amount",
+    "is_green",
 )
 
 
@@ -47,6 +48,25 @@ def _parse_optional_str(value: object) -> str | None:
         return None
     text = str(value).strip()
     return text or None
+
+
+def _parse_optional_bool(value: object) -> bool | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text or text.upper() in {"N/A", "NA", "NULL", "NONE"}:
+        return None
+    try:
+        n = int(text)
+    except ValueError as exc:
+        raise ValueError(
+            f"Expected integer boolean 0 or 1, got {value!r}"
+        ) from exc
+    if n == 0:
+        return False
+    if n == 1:
+        return True
+    raise ValueError(f"Expected integer boolean 0 or 1, got {value!r}")
 
 
 def _normalize_optional_str(value: str | None) -> str | None:
@@ -100,6 +120,7 @@ class Bond:
     accrual_start_date: date | None = None
     closest_tenor_pillar: str | None = None
     issue_amount: float | None = None
+    is_green: bool | None = None
 
     def __post_init__(self) -> None:
         bond_id, user_friendly_id = _validate_bond_identifiers(
@@ -132,6 +153,7 @@ class Bond:
             accrual_start_date=_parse_optional_date(row.get("accrual_start_date")),
             closest_tenor_pillar=_parse_optional_str(row.get("closest_tenor_pillar")),
             issue_amount=_parse_optional_float(row.get("issue_amount")),
+            is_green=_parse_optional_bool(row.get("is_green")),
         )
 
     def as_dict(self) -> dict[str, str | float | None]:
@@ -152,6 +174,7 @@ class Bond:
             "accrual_start_date": _date_str(self.accrual_start_date),
             "closest_tenor_pillar": self.closest_tenor_pillar,
             "issue_amount": self.issue_amount,
+            "is_green": self.is_green,
         }
 
     def field_names(self) -> tuple[str, ...]:
