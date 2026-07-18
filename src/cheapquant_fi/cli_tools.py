@@ -1,4 +1,4 @@
-"""MCP tools for QuantLib market context management."""
+"""CLI tools for QuantLib market context management."""
 
 from datetime import date, datetime
 

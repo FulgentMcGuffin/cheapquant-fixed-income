@@ -35,7 +35,7 @@ from cheapquant_fi.agent.planner import (
     resolve_query_mode,
 )
 from cheapquant_fi.cache.manager import CacheManager
-from cheapquant_fi.mcp_tools import check_market_context
+from cheapquant_fi.cli_tools import check_market_context
 
 
 class DatasetTarget(str, Enum):
