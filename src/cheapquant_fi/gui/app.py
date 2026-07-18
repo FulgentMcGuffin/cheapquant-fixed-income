@@ -67,9 +67,9 @@ def _apply_mcp_env(app: AppSettings) -> None:
     ``setdefault`` is used throughout so that any explicit override set by the
     user in their shell or ``.env`` file is not silently clobbered.
     """
-    os.environ.setdefault("MCP_DB_PATH", str(app.input_db_path))
-    os.environ.setdefault("MCP_DATASET", app.input_dataset)
-    os.environ.setdefault("MCP_SEMANTICS_DIR", str(app.input_semantics_dir))
+    os.environ.setdefault("MCP_DB_PATH", str(app.ycs_db_path))
+    os.environ.setdefault("MCP_DATASET", app.ycs_dataset)
+    os.environ.setdefault("MCP_SEMANTICS_DIR", str(app.ycs_semantics_dir))
     os.environ.setdefault("MCP_TRANSPORT", "stdio")
 
 

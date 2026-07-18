@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import date
 from enum import Enum
 
@@ -135,6 +136,33 @@ _QL_FITTED_MEMBERS: frozenset[QLZeroInterp] = frozenset({
 
 _QL_ZERO_DEFAULT = QLZeroInterp.CUBIC_ZERO
 _QL_PAR_DEFAULT = QLZeroInterp.LINEAR_ZERO
+
+
+@dataclass(frozen=True)
+class ZeroCurveBuildOptions:
+    """Keyword arguments shared by :func:`ql_build_zero_curve` call sites."""
+
+    rate_type: RateType = RateType.ZERO
+    interpolation: QLZeroInterp | None = None
+    bspline_knots: list[float] | None = None
+    poly_degree: int = 3
+
+    def build(
+        self,
+        issuer: IssuerProfile,
+        valuation_date: date,
+        rates_df: pl.DataFrame,
+    ) -> tuple[ql.YieldTermStructureHandle, pl.DataFrame]:
+        """Build a curve using these options."""
+        return ql_build_zero_curve(
+            issuer,
+            valuation_date,
+            rates_df,
+            rate_type=self.rate_type,
+            interpolation=self.interpolation,
+            bspline_knots=self.bspline_knots,
+            poly_degree=self.poly_degree,
+        )
 
 
 def _ql_auto_bspline_knots(tenor_years: list[float]) -> list[float]:

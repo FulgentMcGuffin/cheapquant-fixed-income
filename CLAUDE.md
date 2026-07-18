@@ -102,7 +102,7 @@ Launch profiles in `.vscode/launch.json`:
 - **`AppSettings`** — Frozen dataclass holding resolved runtime paths
 - **`load_settings(config_path)`** — Load YAML config and create `AppSettings`
 - **`get_settings()`** — Get active settings (lazy-load default if not set)
-- Paths: `input_db_path`, `cache_db_path`, `cache_semantics_dir`, `sessions_dir`
+- Paths: `ycs_db_path`, `ycs_semantics_dir`, `cache_db_path`, `cache_semantics_dir`, `sessions_dir`
 - LangSmith tracing is off by default; set `CQFI_LANGSMITH=1` to enable
 
 ### CLI Agent (`agent/cli.py`, `agent/planner.py`)
@@ -142,8 +142,8 @@ Launch profiles in `.vscode/launch.json`:
 Shared by CLI and GUI. Defines paths and settings:
 ```yaml
 paths:
-  input_db: D:/data/duckdb/ycs_data.duckdb
-  input_semantics: ./semantics/ycs_data.yaml
+  ycs_db: D:/data/duckdb/ycs_data.duckdb
+  ycs_semantics: ./semantics/ycs_data.yaml
   bond_analytics_db: D:/data/duckdb/bond_analytics.duckdb
   cache_db: ./data/cache/active_cache.db
   cache_semantics_dir: ./semantics
@@ -152,8 +152,8 @@ paths:
 settings:
   write_to_bond_analytics_db: true
 ```
-- **input_db** — read-only DuckDB or SQLite database with yield curves (zero rates and par rates) and spot FX rates
-- **input_semantics** — YAML profile describing ycs_data schema for mcp-data
+- **ycs_db** — read-only DuckDB or SQLite database with yield curves (zero rates and par rates) and spot FX rates
+- **ycs_semantics** — YAML profile describing ycs_data schema for mcp-data
 - **bond_analytics_db** — DuckDB or SQLite for bond analytics (historical analytics DB)
 - **cache_db** — writable SQLite where framecache stores results
 - **cache_semantics_dir** — YAML profiles for cache tables
@@ -162,7 +162,7 @@ settings:
 ### Environment Variables
 - **`ANTHROPIC_API_KEY`** — Claude API key; enables LLM mode
 - **`CQFI_CONFIG`** — override default config path
-- **`CQFI_INPUT_DB`, `CQFI_INPUT_SEMANTICS`, `CQFI_BOND_ANALYTICS_DB`, `CQFI_CACHE_DB`, etc.** — optional per-path overrides in `.env`
+- **`CQFI_YCS_DB`, `CQFI_YCS_SEMANTICS`, `CQFI_BOND_ANALYTICS_DB`, `CQFI_CACHE_DB`, etc.** — optional per-path overrides in `.env`
 - **`CQFI_WRITE_TO_BOND_ANALYTICS_DB`** — override `settings.write_to_bond_analytics_db`
 - **`CQFI_LANGSMITH`** — set to `1` to enable LangSmith tracing (normally off to avoid 403 noise)
 
@@ -220,7 +220,7 @@ Queries are auto-routed to INPUT (yield curves) or CACHE (pricing results) based
 ## Debugging Tips
 
 - **Config not loading?** Check `CQFI_CONFIG`, default is `config/cqfi.yaml`
-- **Missing ycs_data database?** Set `CQFI_INPUT_DB` or update `config/cqfi.yaml`
+- **Missing ycs_data database?** Set `CQFI_YCS_DB` or update `config/cqfi.yaml`
 - **LangSmith 403 errors?** Set `CQFI_LANGSMITH=0` or don't set `LANGCHAIN_TRACING_V2=true` globally
 - **GUI not rendering?** Check PySide6 installation; may require a graphics environment
 - **QuantLib import fails?** Ensure QuantLib package is installed; on Windows, may need pre-built wheels

@@ -64,8 +64,8 @@ class AppSettings:
     """Resolved runtime paths and dataset names."""
 
     config_path: Path
-    input_db_path: Path
-    input_semantics_dir: Path
+    ycs_db_path: Path
+    ycs_semantics_dir: Path
     bond_analytics_db_path: Path
     cache_db_path: Path
     cache_semantics_dir: Path
@@ -73,8 +73,8 @@ class AppSettings:
     write_to_bond_analytics_db: bool = False
 
     @property
-    def input_dataset(self) -> str:
-        return self.input_db_path.stem
+    def ycs_dataset(self) -> str:
+        return self.ycs_db_path.stem
 
     @property
     def cache_dataset(self) -> str:
@@ -111,8 +111,8 @@ class AppSettings:
                 return _parse_bool(yaml_val)
             return default
 
-        input_db = _get("input_db", "CQFI_INPUT_DB")
-        input_semantics = _get("input_semantics", "CQFI_INPUT_SEMANTICS")
+        ycs_db = _get("ycs_db", "CQFI_YCS_DB")
+        ycs_semantics = _get("ycs_semantics", "CQFI_YCS_SEMANTICS")
         bond_analytics_db = _get("bond_analytics_db", "CQFI_BOND_ANALYTICS_DB")
         cache_db = _get("cache_db", "CQFI_CACHE_DB")
         cache_semantics = _get("cache_semantics_dir", "CQFI_CACHE_SEMANTICS")
@@ -124,8 +124,8 @@ class AppSettings:
         missing = [
             name
             for name, val in [
-                ("input_db", input_db),
-                ("input_semantics", input_semantics),
+                ("ycs_db", ycs_db),
+                ("ycs_semantics", ycs_semantics),
                 ("bond_analytics_db", bond_analytics_db),
                 ("cache_db", cache_db),
                 ("cache_semantics_dir", cache_semantics),
@@ -140,8 +140,8 @@ class AppSettings:
 
         return cls(
             config_path=config_path,
-            input_db_path=_resolve_path(input_db),
-            input_semantics_dir=_semantics_dir_from_value(input_semantics),
+            ycs_db_path=_resolve_path(ycs_db),
+            ycs_semantics_dir=_semantics_dir_from_value(ycs_semantics),
             bond_analytics_db_path=_resolve_path(bond_analytics_db),
             cache_db_path=_resolve_path(cache_db),
             cache_semantics_dir=_resolve_path(cache_semantics),

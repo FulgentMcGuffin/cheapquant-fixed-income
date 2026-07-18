@@ -68,8 +68,8 @@ Optional per-path overrides live in `.env` (see `.env.example`).
 
 | Setting | Config key | Default |
 |---------|------------|---------|
-| Input DB (ycs) | `paths.input_db` | `D:/data/duckdb/ycs_data.duckdb` |
-| Input semantics | `paths.input_semantics` | `./semantics/ycs_data.yaml` |
+| YCS DB | `paths.ycs_db` | `D:/data/duckdb/ycs_data.duckdb` |
+| YCS semantics | `paths.ycs_semantics` | `./semantics/ycs_data.yaml` |
 | Bond analytics DB | `paths.bond_analytics_db` | `D:/data/duckdb/bond_analytics.duckdb` |
 | Active cache | `paths.cache_db` | `./data/cache/active_cache.db` |
 | Sessions | `paths.sessions_dir` | `./data/sessions/` |

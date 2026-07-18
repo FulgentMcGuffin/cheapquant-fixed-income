@@ -17,8 +17,8 @@ def test_default_config_file_exists():
 
 def test_load_default_config():
     settings = AppSettings.from_yaml(DEFAULT_CONFIG_PATH)
-    assert settings.input_db_path.name == "ycs_data.duckdb"
-    assert settings.input_semantics_dir.name == "semantics"
+    assert settings.ycs_db_path.name == "ycs_data.duckdb"
+    assert settings.ycs_semantics_dir.name == "semantics"
     assert settings.bond_analytics_db_path.name == "bond_analytics.duckdb"
     assert settings.cache_db_path.name == "active_cache.db"
     assert settings.sessions_dir.name == "sessions"
@@ -35,8 +35,8 @@ def test_env_override(monkeypatch, tmp_path: Path):
     config.write_text(
         """
 paths:
-  input_db: ./input.db
-  input_semantics: ./sem/input.yaml
+  ycs_db: ./input.db
+  ycs_semantics: ./sem/input.yaml
   bond_analytics_db: ./bond_analytics.db
   cache_db: ./cache.db
   cache_semantics_dir: ./sem
@@ -46,10 +46,10 @@ settings:
 """,
         encoding="utf-8",
     )
-    monkeypatch.setenv("CQFI_INPUT_DB", r"C:\override\ycs_data.duckdb")
+    monkeypatch.setenv("CQFI_YCS_DB", r"C:\override\ycs_data.duckdb")
     monkeypatch.setenv("CQFI_WRITE_TO_BOND_ANALYTICS_DB", "true")
     settings = AppSettings.from_yaml(config)
-    assert settings.input_db_path == Path(r"C:\override\ycs_data.duckdb")
+    assert settings.ycs_db_path == Path(r"C:\override\ycs_data.duckdb")
     assert settings.write_to_bond_analytics_db is True
 
 
@@ -58,8 +58,8 @@ def test_bond_analytics_db_env_override(monkeypatch, tmp_path: Path):
     config.write_text(
         """
 paths:
-  input_db: ./input.db
-  input_semantics: ./sem/input.yaml
+  ycs_db: ./input.db
+  ycs_semantics: ./sem/input.yaml
   bond_analytics_db: ./bond_analytics.db
   cache_db: ./cache.db
   cache_semantics_dir: ./sem

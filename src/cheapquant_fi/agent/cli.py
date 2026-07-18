@@ -117,9 +117,9 @@ def _mcp_settings(app: AppSettings, target: DatasetTarget) -> MCPSettings:
     if target == DatasetTarget.INPUT:
         return MCPSettings(
             transport="stdio",
-            db_path=app.input_db_path,
-            dataset=app.input_dataset,
-            semantics_dir=app.input_semantics_dir,
+            db_path=app.ycs_db_path,
+            dataset=app.ycs_dataset,
+            semantics_dir=app.ycs_semantics_dir,
             server_name="cqfi-input",
         )
     return MCPSettings(

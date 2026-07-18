@@ -4,15 +4,15 @@
 # Override at startup:  cqfi --config path/to/cqfi.yaml
 # Or set CQFI_CONFIG in the environment.
 #
-# Per-path env overrides (optional, in .env): CQFI_INPUT_DB, CQFI_INPUT_SEMANTICS,
+# Per-path env overrides (optional, in .env): CQFI_YCS_DB, CQFI_YCS_SEMANTICS,
 # CQFI_BOND_ANALYTICS_DB, CQFI_CACHE_DB, CQFI_CACHE_SEMANTICS, CQFI_SESSIONS_DIR
 
 paths:
   # Alternatives (uncomment one pair):
-  # input_db: D:/data/sqlite/ycs_data.sqlite
+  # ycs_db: D:/data/sqlite/ycs_data.sqlite
   # bond_analytics_db: D:/data/sqlite/bond_analytics.sqlite
-  input_db: D:/data/duckdb/ycs_data.duckdb
-  input_semantics: ./semantics/ycs_data.yaml
+  ycs_db: D:/data/duckdb/ycs_data.duckdb
+  ycs_semantics: ./semantics/ycs_data.yaml
   bond_analytics_db: D:/data/duckdb/bond_analytics.duckdb
   cache_db: ./data/cache/active_cache.db
   cache_semantics_dir: ./semantics

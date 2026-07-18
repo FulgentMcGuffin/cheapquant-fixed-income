@@ -2,15 +2,19 @@
 
 Example
 -------
-Build a bond curve handle and register it on a :class:`MarketContext`::
+Build a bond curve handle and register it on a :class:`QuantlibMarketContext`::
 
     from datetime import date
 
     import polars as pl
 
     from cheapquant_fi.issuers import resolve_issuer
-    from cheapquant_fi.quantlib.quantlib_curve import build_zero_curve
-    from cheapquant_fi.quantlib.quantlib_market_context import CurveCollection, FXC, MarketContext
+    from cheapquant_fi.quantlib.quantlib_curve import ql_build_zero_curve
+    from cheapquant_fi.quantlib.quantlib_market_context import (
+        FXC,
+        QuantLibCurveCollection,
+        QuantlibMarketContext,
+    )
 
     as_of = date(2020, 1, 2)
     issuer = resolve_issuer("USA")
@@ -23,15 +27,15 @@ Build a bond curve handle and register it on a :class:`MarketContext`::
             "rate_pct": [1.5, 2.0, 2.5],
         }
     )
-    curve_handle, _ = build_zero_curve(issuer, as_of, rates_df)
+    curve_handle, _ = ql_build_zero_curve(issuer, as_of, rates_df)
 
-    curves = CurveCollection(as_of=as_of)
+    curves = QuantLibCurveCollection(as_of=as_of)
     curves.set_bond_curve("USA", curve_handle)
 
     fx = FXC(as_of=as_of)
     fx.set_rate("AUD", "USD", 1.45)
 
-    ctx = MarketContext()
+    ctx = QuantlibMarketContext()
     ctx.add_curve_collection(curves)
     ctx.add_fxc(fx)
 
@@ -41,10 +45,21 @@ Build a bond curve handle and register it on a :class:`MarketContext`::
 
 from __future__ import annotations
 
+from collections import defaultdict
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import date, datetime
+from pathlib import Path
 
 import QuantLib as ql
+
+from cheapquant_fi.config import get_settings
+from cheapquant_fi.data.rates_loader import load_curve_rates
+from cheapquant_fi.issuers import IssuerProfile, RateType, resolve_issuer
+from cheapquant_fi.quantlib.quantlib_curve import (
+    QLZeroInterp,
+    ZeroCurveBuildOptions,
+)
 
 
 def _normalize_ccy(code: str) -> str:
@@ -126,7 +141,7 @@ class QuantLibCurveCollection:
     """Yield curves as of a single valuation date or datetime.
 
     Bond curves are indexed by sovereign issuer code (``USA``, ``DEU``, …) as
-    built by :func:`cheapquant_fi.quantlib.quantlib_curve.build_zero_curve`.  Swap curves
+    built by :func:`cheapquant_fi.quantlib.quantlib_curve.ql_build_zero_curve`.  Swap curves
     will be indexed by :class:`SwapCurveKey` once implemented.
     """
 
@@ -196,6 +211,156 @@ class QuantLibCurveCollection:
     def swap_curve_keys(self) -> list[SwapCurveKey]:
         """Registered swap curve keys."""
         return list(self._swap_curves.keys())
+
+
+def ql_build_curve_collections(
+    date_issuer_pairs: Iterable[tuple[date, IssuerProfile]],
+    db_path: str | Path | None = None,
+    *,
+    rate_type: RateType = RateType.ZERO,
+    interpolation: QLZeroInterp | None = None,
+    bspline_knots: list[float] | None = None,
+    poly_degree: int = 3,
+    curve_options: ZeroCurveBuildOptions | None = None,
+) -> list[QuantLibCurveCollection]:
+    """Build one :class:`QuantLibCurveCollection` per valuation date.
+
+    *date_issuer_pairs* must contain unique ``(date, issuer)`` combinations.
+    Pairs sharing the same date are grouped into a single collection whose
+    ``_bond_curves`` dict holds one entry per issuer.  The returned list is
+    sorted by date ascending with no duplicate ``as_of`` values.
+
+    Pillar rates are loaded from *db_path* via
+    :func:`cheapquant_fi.data.rates_loader.load_curve_rates`.  When *db_path*
+    is ``None``, ``paths.ycs_db`` from ``config/cqfi.yaml`` is used.
+
+    Parameters
+    ----------
+    date_issuer_pairs:
+        ``(valuation_date, issuer)`` pairs to build curves for.
+    db_path:
+        Path to the rates database.  Defaults to ``ycs_db`` from
+        ``config/cqfi.yaml`` (respecting ``CQFI_CONFIG`` / ``CQFI_YCS_DB``).
+    rate_type, interpolation, bspline_knots, poly_degree:
+        Passed through to :func:`ql_build_zero_curve` unless *curve_options*
+        is supplied (which takes precedence).
+    curve_options:
+        Optional bundled build options; overrides the individual keyword args
+        when provided.
+
+    Returns
+    -------
+    list[QuantLibCurveCollection]
+        One collection per distinct valuation date, ascending.
+    """
+    if curve_options is None:
+        curve_options = ZeroCurveBuildOptions(
+            rate_type=rate_type,
+            interpolation=interpolation,
+            bspline_knots=bspline_knots,
+            poly_degree=poly_degree,
+        )
+
+    resolved_db_path = db_path if db_path is not None else get_settings().ycs_db_path
+
+    by_date: dict[date, list[IssuerProfile]] = defaultdict(list)
+    seen: set[tuple[date, str]] = set()
+
+    for val_date, issuer in date_issuer_pairs:
+        key = (val_date, issuer.source_code)
+        if key in seen:
+            raise ValueError(
+                f"Duplicate (date, issuer) pair: {val_date.isoformat()}, "
+                f"{issuer.source_code!r}"
+            )
+        seen.add(key)
+        by_date[val_date].append(issuer)
+
+    collections: list[QuantLibCurveCollection] = []
+    for val_date in sorted(by_date):
+        collection = QuantLibCurveCollection(as_of=val_date)
+        for issuer in by_date[val_date]:
+            rates_df = load_curve_rates(
+                resolved_db_path,
+                issuer,
+                val_date,
+                rate_type=curve_options.rate_type,
+            )
+            curve_handle, _ = curve_options.build(issuer, val_date, rates_df)
+            collection.set_bond_curve(issuer.source_code, curve_handle)
+        collections.append(collection)
+
+    return collections
+
+
+_BOND_CURVE_LABELS: dict[RateType, str] = {
+    RateType.ZERO: "BOND_ZERO",
+    RateType.PAR: "BOND_PAR",
+}
+
+
+def ql_build_market_context(
+    trade_date: date,
+    issuers: list[str],
+    db_path: str | Path | None = None,
+    *,
+    rate_type: RateType = RateType.ZERO,
+    interpolation: QLZeroInterp | None = None,
+    bspline_knots: list[float] | None = None,
+    poly_degree: int = 3,
+    curve_options: ZeroCurveBuildOptions | None = None,
+) -> QuantlibMarketContext:
+    """Build a :class:`QuantlibMarketContext` with bond curves for *trade_date*.
+
+    Resolves each issuer name via :func:`cheapquant_fi.issuers.resolve_issuer`,
+    builds curves with :func:`ql_build_curve_collections`, and registers the
+    resulting collection under ``"BOND_ZERO"`` or ``"BOND_PAR"`` depending on
+    the effective *rate_type*.
+
+    Parameters
+    ----------
+    trade_date:
+        Valuation date for all bond curves.
+    issuers:
+        Sovereign issuer codes (e.g. ``"USA"``, ``"DEU"``).
+    db_path, rate_type, interpolation, bspline_knots, poly_degree, curve_options:
+        Forwarded to :func:`ql_build_curve_collections` (except
+        *date_issuer_pairs*, which is derived from *trade_date* and *issuers*).
+
+    Returns
+    -------
+    QuantlibMarketContext
+        Context with one labelled bond curve collection.
+    """
+    if not issuers:
+        raise ValueError("At least one issuer is required")
+
+    if curve_options is None:
+        curve_options = ZeroCurveBuildOptions(
+            rate_type=rate_type,
+            interpolation=interpolation,
+            bspline_knots=bspline_knots,
+            poly_degree=poly_degree,
+        )
+
+    date_issuer_pairs = [
+        (trade_date, resolve_issuer(issuer)) for issuer in issuers
+    ]
+    collections = ql_build_curve_collections(
+        date_issuer_pairs,
+        db_path,
+        curve_options=curve_options,
+    )
+    if len(collections) != 1:
+        raise RuntimeError(
+            f"Expected one curve collection for {trade_date.isoformat()}, "
+            f"got {len(collections)}"
+        )
+
+    label = _BOND_CURVE_LABELS[curve_options.rate_type]
+    context = QuantlibMarketContext()
+    context.add_curve_collection(collections[0], label=label)
+    return context
 
 
 @dataclass

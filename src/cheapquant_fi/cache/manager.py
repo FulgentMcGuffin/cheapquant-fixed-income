@@ -71,7 +71,7 @@ class CacheManager:
         if isinstance(rate_type, RateType):
             rate_type = rate_type.value
 
-        db_path = str(self.settings.input_db_path)
+        db_path = str(self.settings.ycs_db_path)
         result = self._cached_price_cmts(db_path, source, valuation_date, rate_type)
 
         cache_id = self._framecache.latest_cache_instance_id(
