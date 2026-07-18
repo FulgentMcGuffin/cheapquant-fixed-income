@@ -375,7 +375,7 @@ ISSUERS: dict[str, IssuerProfile] = {
     ),
 }
 
-# Aliases for natural-language / country names from input_data vocabulary.
+# Aliases for natural-language / country names from ycs_data.yaml vocabulary.
 SOURCE_ALIASES: dict[str, str] = {
     # Americas
     "US": "USA",

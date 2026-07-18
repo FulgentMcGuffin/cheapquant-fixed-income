@@ -53,7 +53,7 @@ The agent exposes both a **CLI REPL** (`cqfi`) and **GUI chat** (`cqfi-gui`) for
 - **`config.py`** — Load and validate YAML configs; resolve paths from environment or config files
 - **`agent/`** — CLI REPL entry point (`cli.py`), query routing and planning logic (`planner.py`)
 - **`quantlib/`** — Curve construction, CMT pricing, analytics, market context
-- **`data/`** — Load zero/par rates from input_data.db
+- **`data/`** — Load zero/par rates from ycs_data.duckdb or ycs_data.sqlite or 
 - **`cache/`** — framecache integration, session save/load, flattened SQL tables for LLM queries
 - **`gui/`** — PySide6 GUI entry point, chat dialog, result rendering
 
@@ -121,7 +121,7 @@ Launch profiles in `.vscode/launch.json`:
 - **`issuers.py`** — 19 sovereign issuers with QuantLib conventions (day-count, calendar, coupon frequency)
 
 ### Data Loading (`data/rates_loader.py`)
-- Load zero or par rates from input_data.db
+- Load zero or par rates from ycs_data.db
 - Return as polars DataFrame
 - Follows QuantLib conventions per issuer
 

@@ -1,4 +1,4 @@
-"""Read-only access to zero/par rates in input_data.db."""
+"""Read-only access to zero/par rates in ycs_data.duckdb/sqlite."""
 
 from __future__ import annotations
 

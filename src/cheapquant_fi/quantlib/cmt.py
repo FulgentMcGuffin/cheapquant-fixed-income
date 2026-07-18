@@ -127,7 +127,7 @@ def ql_price_cmts(
     bspline_knots: list[float] | None = None,
     poly_degree: int = 3,
 ) -> pl.DataFrame:
-    """End-to-end CMT pricing: load rates from input_data.db and price.
+    """End-to-end CMT pricing: load rates from ycs_data.duckdb/sqlite and price.
 
     Parameters
     ----------

@@ -1,4 +1,4 @@
-"""Tenor column names and natural-language labels from input_data conventions."""
+"""Tenor column names and natural-language labels from ycs_data.yaml conventions."""
 
 from __future__ import annotations
 

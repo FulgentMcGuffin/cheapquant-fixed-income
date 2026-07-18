@@ -33,7 +33,7 @@ the GUI) renders tables and charts from the result.
   and surfaces the answer as text, a table, or a plot.
 
 - **Mix and match** — combine sources in one flow: pull a curve from
-  `input_data`, price a CMT with QuantLib, write results to the cache, then ask
+  `ycs_data`, price a CMT with QuantLib, write results to the cache, then ask
   “plot the 5Y CMTs we just stored for Germany” — data and tools are composable,
   not siloed.
 
@@ -142,7 +142,7 @@ Pass `interpolation=ZeroInterp.<METHOD>` to `build_zero_curve` / `price_cmts_fro
 ## Architecture
 
 ```
-input_data.db (read-only)          QuantLib (e.g. CMT pricing)
+ycs_data.duckdb/sqlite (read-only)          QuantLib (e.g. CMT pricing)
         │                                    │
         │                                    ▼
         │                          framecache SQLiteBackend
@@ -166,7 +166,7 @@ src/cheapquant_fi/
   config.py              — YAML path configuration
   issuers.py             — sovereign conventions (19 issuers)
   tenors.py              — pillar column mapping
-  data/rates_loader.py   — read zero/par rates from input_data.db
+  data/rates_loader.py   — read zero/par rates from ycs_data.db
   quantlib/curve.py      — yield curve construction (ZeroInterp enum)
   quantlib/cmt.py        — CMT pricing
   cache/manager.py       — framecache + session save/load

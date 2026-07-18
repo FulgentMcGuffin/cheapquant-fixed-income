@@ -32,9 +32,9 @@ class QuantLibAnalyticsCalculator:
     def compute_bond_analytics(
         self,
         request: BondAnalyticsInput,
-        market: QuantlibMarketContext,
+        market: QuantlibMarketContext = None,
         *,
-        curve_label: str = "default",
+        curve_label: str = "BOND_ZERO",
     ) -> FixedIncomeAnalyticsOutput:
         issuer = resolve_issuer(request.issuer)
         settlement = _to_ql_date(request.settlement_date)
@@ -59,9 +59,9 @@ class QuantLibAnalyticsCalculator:
     def compute_cmt_analytics(
         self,
         request: CmtAnalyticsInput,
-        market: QuantlibMarketContext,
+        market: QuantlibMarketContext = None,
         *,
-        curve_label: str = "default",
+        curve_label: str = "BOND_ZERO",
     ) -> FixedIncomeAnalyticsOutput:
         issuer = resolve_issuer(request.issuer)
         settlement = _to_ql_date(request.settlement_date)

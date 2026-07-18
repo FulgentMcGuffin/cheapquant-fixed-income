@@ -1,4 +1,4 @@
-"""Basic tests for routing and CMT pricing (requires input_data.db)."""
+"""Basic tests for routing and CMT pricing (requires ycs_data.duckdb/sqlite)."""
 
 from __future__ import annotations
 
@@ -68,8 +68,8 @@ def test_issuers_without_ex_dividend_unaffected():
 
 
 @pytest.mark.skipif(
-    not Path(r"C:\data\sqlitedb\input_data.db").exists(),
-    reason="input_data.db not available",
+    not Path(r"D:\data\sqlite\ycs_data.sqlite").exists(),
+    reason="ycs_data.sqlite not available",
 )
 def test_price_cmts_usa():
     from cheapquant_fi.cache.manager import CacheManager
@@ -87,8 +87,8 @@ def test_price_cmts_usa():
 
 
 @pytest.mark.skipif(
-    not Path(r"C:\data\sqlitedb\input_data.db").exists(),
-    reason="input_data.db not available",
+    not Path(r"D:\data\sqlite\ycs_data.sqlite").exists(),
+    reason="ycs_data.sqlite not available",
 )
 def test_price_cmts_gbr_par_curve_bootstrap():
     """Par-curve bootstrap for GBR should complete using ex-dividend helpers."""

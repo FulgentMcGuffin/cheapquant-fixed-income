@@ -1,5 +1,7 @@
 """CLI tools for QuantLib market context management."""
 
+from __future__ import annotations
+
 from datetime import date, datetime
 
 from cheapquant_fi.quantlib.quantlib_market_context_manager import (
@@ -62,3 +64,40 @@ def check_market_context(
             "error": str(exc),
             "message": f"Failed to check market context: {exc}",
         }
+
+
+def get_mctx_tool_definition() -> dict:
+    """Return JSON schema for the market context tool for LLM use."""
+    return {
+        "name": "check_market_context",
+        "description": (
+            "Check if a QuantLib market context exists for a given date, issuer, and curve. "
+            "If it doesn't exist, create it and make it available to the manager. "
+            "Returns whether the context exists or was successfully created."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "as_of": {
+                    "type": "string",
+                    "description": "Valuation date in YYYY-MM-DD or YYYY-MM-DD HH:MM:SS format",
+                    "examples": ["2022-02-17", "2024-02-15", "2025-11-18 10:30:45"],
+                },
+                "issuer": {
+                    "type": "string",
+                    "description": (
+                        "Optional issuer code (e.g., USA, DEU, FRA, GBR, JPN, etc.). "
+                        "If omitted, checks/creates full market context."
+                    ),
+                    "examples": ["USA", "DEU", "FRA"],
+                },
+                "curve_label": {
+                    "type": "string",
+                    "description": "Curve collection label (BOND_ZERO or BOND_PAR)",
+                    "enum": ["BOND_ZERO", "BOND_PAR"],
+                    "default": "BOND_ZERO",
+                },
+            },
+            "required": ["as_of"],
+        },
+    }

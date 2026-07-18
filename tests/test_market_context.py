@@ -75,7 +75,7 @@ def test_ql_build_curve_collections_groups_by_date_and_orders():
         "cheapquant_fi.quantlib.quantlib_market_context.load_curve_rates",
         side_effect=fake_load_curve_rates,
     ):
-        collections = ql_build_curve_collections(pairs, "/fake/input_data.db")
+        collections = ql_build_curve_collections(pairs, "/fake/fake_ycs_data.sqlite")
 
     assert len(collections) == 2
     assert [c.as_of for c in collections] == [d1, d2]
@@ -90,7 +90,7 @@ def test_ql_build_curve_collections_rejects_duplicate_pairs():
     pairs = [(d1, usa), (d1, usa)]
 
     with pytest.raises(ValueError, match="Duplicate"):
-        ql_build_curve_collections(pairs, "/fake/input_data.db")
+        ql_build_curve_collections(pairs, "/fake/fake_ycs_data.sqlite")
 
 
 def test_ql_build_market_context_registers_bond_zero_label():

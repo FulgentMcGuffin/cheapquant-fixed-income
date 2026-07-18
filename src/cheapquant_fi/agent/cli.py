@@ -1,4 +1,4 @@
-"""Unified text interface for input_data queries and cached analytics."""
+"""Unified text interface for ycs_data queries and cached analytics."""
 
 from __future__ import annotations
 
@@ -35,7 +35,7 @@ from cheapquant_fi.agent.planner import (
     resolve_query_mode,
 )
 from cheapquant_fi.cache.manager import CacheManager
-from cheapquant_fi.cli_tools import check_market_context
+from cheapquant_fi.cli_tools import check_market_context, get_mctx_tool_definition
 
 
 class DatasetTarget(str, Enum):
@@ -54,7 +54,7 @@ HELP_TEXT_CQFI = (
     "=============================\n"
     "\n"
     "Query datasets (prefix optional — auto-routed when obvious):\n"
-    "  input: <question>   — read-only questions about yield curves in input_data.db\n"
+    "  input: <question>   — read-only questions about yield curves in ycs_data.duckdb/sqlite\n"
     "  cache: <question>   — questions about cached QuantLib results\n"
     "\n"
     "Pricing commands:\n"
@@ -66,6 +66,7 @@ HELP_TEXT_CQFI = (
     "    Examples: /mctx 2022-02-17 FRA BOND_ZERO\n"
     "              /mctx 2024-02-15 USA\n"
     "              /mctx 2025-11-18\n"
+    "    Also available in LLM mode: \"Is there a market for France on 17 Feb 2022?\"\n"
     "\n"
     "Session commands:\n"
     "  save [session_id]   — persist active cache to data/sessions/\n"
@@ -80,6 +81,7 @@ HELP_TEXT_CQFI = (
     "Dataset queries:\n"
     "  • With ANTHROPIC_API_KEY set (or --llm / --llm-single-shot), natural\n"
     "    language works:  input: average 10Y zero for Germany in 2017\n"
+    "    market context queries: Is there a market for USA on 2024-02-15?\n"
     "  • Without LLM, use rule syntax (same as db-mcp-client):\n"
     "      input: tables\n"
     "      input: schema zero_rates\n"
@@ -175,7 +177,7 @@ def route_query(text: str) -> RoutedQuery | None:
         "correlation",
         "spread",
         "slope",
-        "input_data",
+        "ycs_data",
         "treasury curve",
         "yield curve",
     )
@@ -188,6 +190,19 @@ def route_query(text: str) -> RoutedQuery | None:
 async def _run_tool_calls(client: DBClient, calls: list[ToolCall]) -> None:
     tools = await client.list_tools()
     for call in calls:
+        if call.name == "check_market_context":
+            # Handle custom market context tool locally
+            try:
+                result = check_market_context(
+                    call.arguments.get("as_of"),
+                    call.arguments.get("issuer"),
+                    call.arguments.get("curve_label", "BOND_ZERO"),
+                )
+                print(_render(result))
+            except Exception as exc:
+                print(f"Tool error: {exc}")
+            continue
+
         if call.name not in tools:
             print(f"Tool {call.name!r} not available (have: {tools})")
             continue
@@ -210,7 +225,7 @@ async def _query_dataset(
         force_rule=force_rule,
     )
     settings = _mcp_settings(app, target)
-    label = "input_data" if target == DatasetTarget.INPUT else "quant_cache"
+    label = "ycs_data" if target == DatasetTarget.INPUT else "quant_cache"
     async with DBClient(settings) as client:
         profile_prompt: str | None = None
         if use_agent or use_single_shot:
@@ -220,7 +235,14 @@ async def _query_dataset(
         if use_agent:
             from mcp_data.client.agent import SQLAgent
 
-            agent = SQLAgent(client, profile_prompt=profile_prompt)
+            # Add market context tool to the profile prompt
+            mctx_tool_def = get_mctx_tool_definition()
+            enhanced_prompt = (
+                (profile_prompt or "")
+                + f"\n\nAdditional available tool:\n{mctx_tool_def['name']}: {mctx_tool_def['description']}"
+            )
+
+            agent = SQLAgent(client, profile_prompt=enhanced_prompt)
             result = await agent.run(text)
             print(f"[{label}]\n{result.answer or '(no answer)'}")
             return

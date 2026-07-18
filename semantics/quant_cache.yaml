@@ -92,7 +92,7 @@ tables:
       rate_type: {type: TEXT, description: "'zero' or 'par' input rates used."}
       tenor_label: {type: TEXT, description: "Human tenor, e.g. 10Y."}
       tenor_years: {type: REAL, description: "Tenor in years."}
-      input_rate_pct: {type: REAL, description: "Input pillar rate from input_data (%)."}
+      input_rate_pct: {type: REAL, description: "Input pillar rate from ycs_data (%)."}
       curve_zero_pct: {type: REAL, description: "Curve-implied zero at the tenor (%)."}
       clean_price: {type: REAL, description: "Clean price of the synthetic zero-coupon CMT."}
       yield_pct: {type: REAL, description: "Bond yield (%)."}
