@@ -35,6 +35,7 @@ from cheapquant_fi.agent.planner import (
     resolve_query_mode,
 )
 from cheapquant_fi.cache.manager import CacheManager
+from cheapquant_fi.mcp_tools import check_market_context
 
 
 class DatasetTarget(str, Enum):
@@ -59,6 +60,13 @@ HELP_TEXT_CQFI = (
     "Pricing commands:\n"
     "  price cmt <issuer> <YYYY-MM-DD> [--par]  — price CMTs (USA, DEU, …)\n"
     "\n"
+    "Market context commands:\n"
+    "  /mctx <YYYY-MM-DD> [issuer] [curve]  — check/create market context\n"
+    "  /mctx <YYYY-MM-DD HH:MM:SS> [issuer] [curve]  — with time precision\n"
+    "    Examples: /mctx 2022-02-17 FRA BOND_ZERO\n"
+    "              /mctx 2024-02-15 USA\n"
+    "              /mctx 2025-11-18\n"
+    "\n"
     "Session commands:\n"
     "  save [session_id]   — persist active cache to data/sessions/\n"
     "  load <session_id>   — restore a saved cache session\n"
@@ -82,6 +90,12 @@ HELP_TEXT_CQFI = (
 
 _PRICE_RE = re.compile(
     r"^price\s+cmt\s+(?P<issuer>\S+)\s+(?P<date>\d{4}-\d{2}-\d{2})(?:\s+--(?P<flag>par|zero))?$",
+    re.IGNORECASE,
+)
+
+_MCTX_RE = re.compile(
+    r"^/mctx\s+(?P<date>\d{4}-\d{2}-\d{2}(?:\s+\d{2}:\d{2}:\d{2})?)"
+    r"(?:\s+(?P<issuer>\S+))?(?:\s+(?P<curve_label>\S+))?$",
     re.IGNORECASE,
 )
 
@@ -275,6 +289,26 @@ def _handle_local_command(
             print(f"\n({len(result)} CMTs priced and cached)")
         except Exception as exc:
             print(f"Pricing error: {exc}")
+        return True
+
+    match = _MCTX_RE.match(text.strip())
+    if match:
+        as_of = match.group("date").strip()
+        issuer = match.group("issuer")
+        curve_label = match.group("curve_label") or "BOND_ZERO"
+        try:
+            result = check_market_context(as_of, issuer, curve_label)
+            if result.get("status") == "success":
+                print(
+                    f"Market context check: {result['message']}\n"
+                    f"  Date: {result['date']}\n"
+                    f"  Issuer: {result['issuer']}\n"
+                    f"  Curve: {result['curve_label']}"
+                )
+            else:
+                print(f"Error: {result.get('message')}")
+        except Exception as exc:
+            print(f"Market context error: {exc}")
         return True
 
     return False

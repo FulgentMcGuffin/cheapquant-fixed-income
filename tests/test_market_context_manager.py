@@ -221,3 +221,32 @@ def test_get_builds_missing_curve_collection_label():
     stored = manager.require(as_of)
     assert stored.curve_collection_labels() == ["BOND_ZERO"]
     assert stored.curve_collection("BOND_ZERO").bond_issuers() == ["USA"]
+
+
+def test_get_creates_context_when_as_of_missing():
+    from unittest.mock import patch
+
+    import polars as pl
+
+    as_of = date(2020, 1, 2)
+    rates = pl.DataFrame(
+        {
+            "tenor_column": ["Y001p0"],
+            "tenor_label": ["1Y"],
+            "tenor_years": [1.0],
+            "rate_pct": [2.0],
+        }
+    )
+
+    manager = QuantlibMarketContextManager.instance()
+    with patch(
+        "cheapquant_fi.quantlib.quantlib_market_context.load_curve_rates",
+        return_value=rates,
+    ):
+        handle = manager.get(as_of, "USA", "BOND_ZERO")
+
+    assert isinstance(handle, ql.YieldTermStructureHandle)
+    stored = manager.require(as_of)
+    assert stored.as_of == as_of
+    assert stored.curve_collection("BOND_ZERO").bond_issuers() == ["USA"]
+    assert manager.get(as_of) is stored

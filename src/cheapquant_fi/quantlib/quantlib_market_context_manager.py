@@ -7,12 +7,24 @@ from typing import TYPE_CHECKING
 
 import QuantLib as ql
 
+from cheapquant_fi.issuers import RateType
+from cheapquant_fi.quantlib.quantlib_curve import ZeroCurveBuildOptions
+
 if TYPE_CHECKING:
     from cheapquant_fi.quantlib.quantlib_market_context import QuantlibMarketContext
 
 
 def _as_of_date(value: date | datetime) -> date:
     return value.date() if isinstance(value, datetime) else value
+
+
+def _curve_options_for_label(curve_label: str) -> ZeroCurveBuildOptions:
+    label_to_rate_type = {
+        "BOND_ZERO": RateType.ZERO,
+        "BOND_PAR": RateType.PAR,
+    }
+    rate_type = label_to_rate_type.get(curve_label, RateType.ZERO)
+    return ZeroCurveBuildOptions(rate_type=rate_type)
 
 
 class QuantlibMarketContextManager:
@@ -38,6 +50,14 @@ class QuantlibMarketContextManager:
     def instance(cls) -> QuantlibMarketContextManager:
         """Return the singleton manager."""
         return cls()
+    
+    def has_market_context(
+        self,
+        as_of: date | datetime,
+        issuer: str | None = None,
+        curve_label: str = "BOND_ZERO",
+    ) -> bool:
+        return self.get(as_of, issuer, curve_label) is not None      
 
     def get(
         self,
@@ -46,14 +66,29 @@ class QuantlibMarketContextManager:
         curve_label: str = "BOND_ZERO",
     ) -> QuantlibMarketContext | ql.YieldTermStructureHandle | None:
         """Return the registered context, or a bond curve handle when *issuer* is given."""
-        if issuer is None:
-            return self._contexts.get(_as_of_date(as_of))
+        key = _as_of_date(as_of)
 
-        context = self._contexts.get(_as_of_date(as_of))
+        if issuer is None:
+            return self._contexts.get(key)
+
+        context = self._contexts.get(key)
+        
         if context is None:
+            from cheapquant_fi.quantlib.quantlib_market_context import ql_build_market_context
+            context = ql_build_market_context(
+                key,
+                [issuer],
+                curve_options=_curve_options_for_label(curve_label),
+            )
+            if context is not None:
+                self._contexts[key] = context
+                return context.curve_collection(curve_label).bond_curve(issuer)
             return None
+        
         if not context.has(issuer, curve_label):
             context.ensure_bond_curve(issuer, curve_label)
+            self._contexts[key] = context
+        
         return context.curve_collection(curve_label).bond_curve(issuer)
 
     def require(self, as_of: date | datetime) -> QuantlibMarketContext:
