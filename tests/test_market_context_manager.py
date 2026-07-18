@@ -7,6 +7,8 @@ from datetime import date
 import QuantLib as ql
 import pytest
 
+from cheapquant_fi.issuers import RateType
+from cheapquant_fi.quantlib.quantlib_curve import ZeroCurveBuildOptions
 from cheapquant_fi.quantlib.quantlib_market_context import (
     FXC,
     QuantLibCurveCollection,
@@ -89,17 +91,18 @@ def test_merge_same_as_of_combines_labels():
 
 def test_merge_same_label_uses_or_operator():
     as_of = date(2020, 1, 2)
+    options = ZeroCurveBuildOptions()
 
     first = QuantlibMarketContext()
     left = QuantLibCurveCollection(as_of=as_of)
     left.set_bond_curve("USA", _flat_curve_handle(0.01))
-    first.set_curve_collection(left, label="BOND_ZERO")
+    first.set_curve_collection(left, label="BOND_ZERO", curve_options=options)
 
     second = QuantlibMarketContext()
     right = QuantLibCurveCollection(as_of=as_of)
     right.set_bond_curve("USA", _flat_curve_handle(0.03))
     right.set_bond_curve("DEU", _flat_curve_handle(0.02))
-    second.set_curve_collection(right, label="BOND_ZERO")
+    second.set_curve_collection(right, label="BOND_ZERO", curve_options=options)
 
     canonical = QuantlibMarketContextManager.instance().require(as_of)
 
@@ -128,3 +131,93 @@ def test_merge_fxc_same_label_uses_or_operator():
     assert canonical is first
     assert canonical.fxc("SPOT").rate("AUD", "USD") == 1.50
     assert canonical.fxc("SPOT").rate("EUR", "USD") == 0.92
+
+
+def test_merge_same_label_rejects_mismatched_curve_options():
+    as_of = date(2020, 1, 2)
+
+    first = QuantlibMarketContext()
+    left = QuantLibCurveCollection(as_of=as_of)
+    left.set_bond_curve("USA", _flat_curve_handle(0.01))
+    first.set_curve_collection(
+        left,
+        label="BOND_ZERO",
+        curve_options=ZeroCurveBuildOptions(),
+    )
+
+    second = QuantlibMarketContext()
+    right = QuantLibCurveCollection(as_of=as_of)
+    right.set_bond_curve("USA", _flat_curve_handle(0.03))
+    with pytest.raises(ValueError, match="Curve build options"):
+        second.set_curve_collection(
+            right,
+            label="BOND_ZERO",
+            curve_options=ZeroCurveBuildOptions(rate_type=RateType.PAR),
+        )
+
+
+def test_get_builds_missing_issuer_curve():
+    from unittest.mock import patch
+
+    import polars as pl
+
+    as_of = date(2020, 1, 2)
+    context = QuantlibMarketContext()
+    usa_curves = QuantLibCurveCollection(as_of=as_of)
+    usa_curves.set_bond_curve("USA", _flat_curve_handle(0.01))
+    context.set_curve_collection(
+        usa_curves,
+        label="BOND_ZERO",
+        curve_options=ZeroCurveBuildOptions(),
+    )
+
+    rates = pl.DataFrame(
+        {
+            "tenor_column": ["Y001p0"],
+            "tenor_label": ["1Y"],
+            "tenor_years": [1.0],
+            "rate_pct": [1.5],
+        }
+    )
+
+    manager = QuantlibMarketContextManager.instance()
+    with patch(
+        "cheapquant_fi.quantlib.quantlib_market_context.load_curve_rates",
+        return_value=rates,
+    ):
+        handle = manager.get(as_of, "DEU", "BOND_ZERO")
+
+    assert isinstance(handle, ql.YieldTermStructureHandle)
+    stored = manager.require(as_of)
+    assert stored.curve_collection("BOND_ZERO").bond_issuers() == ["DEU", "USA"]
+    assert stored.curve_build_options("BOND_ZERO") == ZeroCurveBuildOptions()
+
+
+def test_get_builds_missing_curve_collection_label():
+    from unittest.mock import patch
+
+    import polars as pl
+
+    as_of = date(2020, 1, 2)
+    context = QuantlibMarketContext(as_of=as_of)
+
+    rates = pl.DataFrame(
+        {
+            "tenor_column": ["Y001p0"],
+            "tenor_label": ["1Y"],
+            "tenor_years": [1.0],
+            "rate_pct": [2.0],
+        }
+    )
+
+    manager = QuantlibMarketContextManager.instance()
+    with patch(
+        "cheapquant_fi.quantlib.quantlib_market_context.load_curve_rates",
+        return_value=rates,
+    ):
+        handle = manager.get(as_of, "USA", "BOND_ZERO")
+
+    assert isinstance(handle, ql.YieldTermStructureHandle)
+    stored = manager.require(as_of)
+    assert stored.curve_collection_labels() == ["BOND_ZERO"]
+    assert stored.curve_collection("BOND_ZERO").bond_issuers() == ["USA"]

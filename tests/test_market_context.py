@@ -10,7 +10,7 @@ import polars as pl
 import pytest
 
 from cheapquant_fi.issuers import RateType, resolve_issuer
-from cheapquant_fi.quantlib.quantlib_curve import ql_build_zero_curve
+from cheapquant_fi.quantlib.quantlib_curve import ZeroCurveBuildOptions, ql_build_zero_curve
 from cheapquant_fi.quantlib.quantlib_market_context import (
     FXC,
     QuantLibCurveCollection,
@@ -115,6 +115,7 @@ def test_ql_build_market_context_registers_bond_zero_label():
     assert collection.as_of == trade_date
     assert collection.bond_issuers() == ["DEU", "USA"]
     assert isinstance(collection.bond_curve("USA"), ql.YieldTermStructureHandle)
+    assert context.curve_build_options("BOND_ZERO") == ZeroCurveBuildOptions()
 
 
 def test_ql_build_market_context_registers_bond_par_label():
@@ -128,7 +129,7 @@ def test_ql_build_market_context_registers_bond_par_label():
         context = ql_build_market_context(
             trade_date,
             ["USA"],
-            rate_type=RateType.PAR,
+            curve_options=ZeroCurveBuildOptions(rate_type=RateType.PAR),
         )
 
     assert context.curve_collection("BOND_PAR").bond_issuers() == ["USA"]

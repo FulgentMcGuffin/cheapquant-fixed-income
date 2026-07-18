@@ -5,6 +5,8 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import TYPE_CHECKING
 
+import QuantLib as ql
+
 if TYPE_CHECKING:
     from cheapquant_fi.quantlib.quantlib_market_context import QuantlibMarketContext
 
@@ -37,9 +39,22 @@ class QuantlibMarketContextManager:
         """Return the singleton manager."""
         return cls()
 
-    def get(self, as_of: date | datetime) -> QuantlibMarketContext | None:
-        """Return the registered context for *as_of*, if any."""
-        return self._contexts.get(_as_of_date(as_of))
+    def get(
+        self,
+        as_of: date | datetime,
+        issuer: str | None = None,
+        curve_label: str = "BOND_ZERO",
+    ) -> QuantlibMarketContext | ql.YieldTermStructureHandle | None:
+        """Return the registered context, or a bond curve handle when *issuer* is given."""
+        if issuer is None:
+            return self._contexts.get(_as_of_date(as_of))
+
+        context = self._contexts.get(_as_of_date(as_of))
+        if context is None:
+            return None
+        if not context.has(issuer, curve_label):
+            context.ensure_bond_curve(issuer, curve_label)
+        return context.curve_collection(curve_label).bond_curve(issuer)
 
     def require(self, as_of: date | datetime) -> QuantlibMarketContext:
         """Return the registered context for *as_of* or raise ``KeyError``."""
@@ -87,11 +102,22 @@ class QuantlibMarketContextManager:
     ) -> None:
         for label, collection in source.curve_collections.items():
             if label in target.curve_collections:
+                target_opts = target.curve_collection_options.get(label)
+                source_opts = source.curve_collection_options.get(label)
+                if target_opts != source_opts:
+                    raise ValueError(
+                        f"Curve build options for label {label!r} do not match: "
+                        f"{target_opts!r} vs {source_opts!r}"
+                    )
                 target.curve_collections[label] = (
                     target.curve_collections[label] | collection
                 )
             else:
                 target.curve_collections[label] = collection
+                if label in source.curve_collection_options:
+                    target.curve_collection_options[label] = (
+                        source.curve_collection_options[label]
+                    )
 
         for label, fxc in source.fx_rates.items():
             if label in target.fx_rates:

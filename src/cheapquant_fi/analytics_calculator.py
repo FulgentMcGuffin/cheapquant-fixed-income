@@ -18,18 +18,18 @@ class AnalyticsCalculator(Protocol):
     def compute_bond_analytics(
         self,
         request: BondAnalyticsInput,
-        market: QuantlibMarketContext,
+        market: QuantlibMarketContext = None,
         *,
-        curve_label: str = "default",
+        curve_label: str = "BOND_ZERO",
     ) -> FixedIncomeAnalyticsOutput:
         """Return analytics for a coupon bond."""
 
     def compute_cmt_analytics(
         self,
         request: CmtAnalyticsInput,
-        market: QuantlibMarketContext,
+        market: QuantlibMarketContext = None,
         *,
-        curve_label: str = "default",
+        curve_label: str = "BOND_ZERO",
     ) -> FixedIncomeAnalyticsOutput:
         """Return analytics for a constant-maturity instrument (zero- or fixed-coupon)."""
 

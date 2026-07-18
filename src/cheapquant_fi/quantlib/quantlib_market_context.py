@@ -56,10 +56,7 @@ import QuantLib as ql
 from cheapquant_fi.config import get_settings
 from cheapquant_fi.data.rates_loader import load_curve_rates
 from cheapquant_fi.issuers import IssuerProfile, RateType, resolve_issuer
-from cheapquant_fi.quantlib.quantlib_curve import (
-    QLZeroInterp,
-    ZeroCurveBuildOptions,
-)
+from cheapquant_fi.quantlib.quantlib_curve import ZeroCurveBuildOptions
 
 
 def _normalize_ccy(code: str) -> str:
@@ -266,10 +263,6 @@ def ql_build_curve_collections(
     date_issuer_pairs: Iterable[tuple[date, IssuerProfile]],
     db_path: str | Path | None = None,
     *,
-    rate_type: RateType = RateType.ZERO,
-    interpolation: QLZeroInterp | None = None,
-    bspline_knots: list[float] | None = None,
-    poly_degree: int = 3,
     curve_options: ZeroCurveBuildOptions | None = None,
 ) -> list[QuantLibCurveCollection]:
     """Build one :class:`QuantLibCurveCollection` per valuation date.
@@ -290,12 +283,9 @@ def ql_build_curve_collections(
     db_path:
         Path to the rates database.  Defaults to ``ycs_db`` from
         ``config/cqfi.yaml`` (respecting ``CQFI_CONFIG`` / ``CQFI_YCS_DB``).
-    rate_type, interpolation, bspline_knots, poly_degree:
-        Passed through to :func:`ql_build_zero_curve` unless *curve_options*
-        is supplied (which takes precedence).
     curve_options:
-        Optional bundled build options; overrides the individual keyword args
-        when provided.
+        Curve construction options forwarded to :func:`ql_build_zero_curve`.
+        Defaults to :class:`ZeroCurveBuildOptions` when ``None``.
 
     Returns
     -------
@@ -303,12 +293,7 @@ def ql_build_curve_collections(
         One collection per distinct valuation date, ascending.
     """
     if curve_options is None:
-        curve_options = ZeroCurveBuildOptions(
-            rate_type=rate_type,
-            interpolation=interpolation,
-            bspline_knots=bspline_knots,
-            poly_degree=poly_degree,
-        )
+        curve_options = ZeroCurveBuildOptions()
 
     resolved_db_path = db_path if db_path is not None else get_settings().ycs_db_path
 
@@ -353,10 +338,6 @@ def ql_build_market_context(
     issuers: list[str],
     db_path: str | Path | None = None,
     *,
-    rate_type: RateType = RateType.ZERO,
-    interpolation: QLZeroInterp | None = None,
-    bspline_knots: list[float] | None = None,
-    poly_degree: int = 3,
     curve_options: ZeroCurveBuildOptions | None = None,
 ) -> QuantlibMarketContext:
     """Build a :class:`QuantlibMarketContext` with bond curves for *trade_date*.
@@ -364,7 +345,7 @@ def ql_build_market_context(
     Resolves each issuer name via :func:`cheapquant_fi.issuers.resolve_issuer`,
     builds curves with :func:`ql_build_curve_collections`, and registers the
     resulting collection under ``"BOND_ZERO"`` or ``"BOND_PAR"`` depending on
-    the effective *rate_type*.
+    *curve_options* ``rate_type``.
 
     Parameters
     ----------
@@ -372,9 +353,11 @@ def ql_build_market_context(
         Valuation date for all bond curves.
     issuers:
         Sovereign issuer codes (e.g. ``"USA"``, ``"DEU"``).
-    db_path, rate_type, interpolation, bspline_knots, poly_degree, curve_options:
-        Forwarded to :func:`ql_build_curve_collections` (except
-        *date_issuer_pairs*, which is derived from *trade_date* and *issuers*).
+    db_path:
+        Forwarded to :func:`ql_build_curve_collections`.
+    curve_options:
+        Curve construction options.  Defaults to :class:`ZeroCurveBuildOptions`
+        when ``None``.
 
     Returns
     -------
@@ -385,12 +368,7 @@ def ql_build_market_context(
         raise ValueError("At least one issuer is required")
 
     if curve_options is None:
-        curve_options = ZeroCurveBuildOptions(
-            rate_type=rate_type,
-            interpolation=interpolation,
-            bspline_knots=bspline_knots,
-            poly_degree=poly_degree,
-        )
+        curve_options = ZeroCurveBuildOptions()
 
     date_issuer_pairs = [
         (trade_date, resolve_issuer(issuer)) for issuer in issuers
@@ -408,7 +386,7 @@ def ql_build_market_context(
 
     label = _BOND_CURVE_LABELS[curve_options.rate_type]
     context = QuantlibMarketContext()
-    context.set_curve_collection(collections[0], label=label)
+    context.set_curve_collection(collections[0], label=label, curve_options=curve_options)
     return context
 
 
@@ -423,20 +401,77 @@ class QuantlibMarketContext:
 
     as_of: date | None = None
     curve_collections: dict[str, QuantLibCurveCollection] = field(default_factory=dict)
+    curve_collection_options: dict[str, ZeroCurveBuildOptions] = field(
+        default_factory=dict, repr=False
+    )
     fx_rates: dict[str, FXC] = field(default_factory=dict)
 
     def set_curve_collection(
         self,
         collection: QuantLibCurveCollection,
         label: str = "default",
+        curve_options: ZeroCurveBuildOptions | None = None,
     ) -> None:
         if self.as_of is not None and collection.as_of != self.as_of:
             raise ValueError(f"Collection as_of {collection.as_of} does not match context as_of {self.as_of}")
         if self.as_of is None:
-            self.as_of = collection.as_of        
+            self.as_of = collection.as_of
         if label in self.curve_collections:
-            raise ValueError(f"Curve collection labelled {label} already exists")
-        self.curve_collections[label] = collection
+            self.curve_collections[label] = self.curve_collections[label] | collection
+        else:
+            self.curve_collections[label] = collection
+        if curve_options is not None:
+            self.curve_collection_options[label] = curve_options
+
+    def has(self, issuer: str, label: str = "BOND_ZERO") -> bool:
+        if label not in self.curve_collections:
+            return False
+        return _normalize_issuer(issuer) in self.curve_collections[label].bond_issuers()
+
+    def _resolve_curve_options(self, label: str) -> ZeroCurveBuildOptions:
+        if label in self.curve_collection_options:
+            return self.curve_collection_options[label]
+        for rate_type, bond_label in _BOND_CURVE_LABELS.items():
+            if bond_label == label:
+                return ZeroCurveBuildOptions(rate_type=rate_type)
+        return ZeroCurveBuildOptions()
+
+    def ensure_bond_curve(
+        self,
+        issuer: str,
+        label: str = "BOND_ZERO",
+        db_path: str | Path | None = None,
+    ) -> ql.YieldTermStructureHandle:
+        """Build and register a bond curve for *issuer* when absent from *label*."""
+        code = _normalize_issuer(issuer)
+        if self.has(code, label):
+            return self.curve_collection(label).bond_curve(code)
+
+        if self.as_of is None:
+            raise ValueError(
+                "Cannot build a bond curve before the context as_of date is set"
+            )
+
+        curve_options = self._resolve_curve_options(label)
+        profile = resolve_issuer(code)
+        val_date = _as_of_date(self.as_of)
+        resolved_db_path = db_path if db_path is not None else get_settings().ycs_db_path
+        rates_df = load_curve_rates(
+            resolved_db_path,
+            profile,
+            val_date,
+            rate_type=curve_options.rate_type,
+        )
+        curve_handle, _ = curve_options.build(profile, val_date, rates_df)
+
+        if label in self.curve_collections:
+            self.curve_collections[label].set_bond_curve(code, curve_handle)
+        else:
+            collection = QuantLibCurveCollection(as_of=self.as_of)
+            collection.set_bond_curve(code, curve_handle)
+            self.set_curve_collection(collection, label=label, curve_options=curve_options)
+
+        return curve_handle
 
     def curve_collection(self, label: str = "default") -> QuantLibCurveCollection:
         try:
@@ -444,6 +479,15 @@ class QuantlibMarketContext:
         except KeyError as exc:
             raise KeyError(
                 f"No curve collection labelled {label!r}"
+            ) from exc
+
+    def curve_build_options(self, label: str = "default") -> ZeroCurveBuildOptions:
+        """Return the :class:`ZeroCurveBuildOptions` registered for *label*."""
+        try:
+            return self.curve_collection_options[label]
+        except KeyError as exc:
+            raise KeyError(
+                f"No curve build options for collection labelled {label!r}"
             ) from exc
 
     def set_fxc(self, fxc: FXC, label: str = "default") -> None:
