@@ -12,8 +12,8 @@ import polars as pl
 import yaml
 from mcp_data.backends import DataSink, DuckDBSource, SQLiteSource
 
-# DEFAULT_DB_PATH = Path("D:/data/duckdb/bond_analytics.duckdb")
-DEFAULT_DB_PATH = Path("D:/data/sqlite/bond_analytics.sqlite")
+DEFAULT_DB_PATH = Path("D:/data/duckdb/bond_analytics.duckdb")
+# DEFAULT_DB_PATH = Path("D:/data/sqlite/bond_analytics.sqlite")
 
 DEFAULT_SEMANTICS_PATH = Path(__file__).resolve().parents[3] / "semantics" / "bond_analytics.yaml"
 DEFAULT_CSV_DIR = Path("D:/bond_csvs")
@@ -122,6 +122,81 @@ _DUCKDB_TYPES = {
     "REAL": "DOUBLE",
 }
 
+# Primary keys, foreign keys, and indexes aligned to bond_analytics query access patterns.
+TABLE_PRIMARY_KEYS: dict[str, tuple[str, ...]] = {
+    "tenor_pillars": ("issuer", "from_date"),
+    "bond_universe": ("bond_id",),
+    "bond_analytics": ("analytic_id",),
+    "cmt_analytics": ("cmt_analytic_id",),
+}
+
+# child_table, child_column, parent_table, parent_column, on_delete
+FOREIGN_KEYS: tuple[tuple[str, str, str, str, str], ...] = (
+    ("bond_analytics", "bond_id", "bond_universe", "bond_id", "RESTRICT"),
+    ("bond_analytics", "mm_cmt_analytic_id", "cmt_analytics", "cmt_analytic_id", "SET NULL"),
+    (
+        "bond_analytics",
+        "mm_fc_cmt_analytic_id",
+        "cmt_analytics",
+        "cmt_analytic_id",
+        "SET NULL",
+    ),
+)
+
+# table, index_name, columns, unique
+INDEXES: tuple[tuple[str, str, tuple[str, ...], bool], ...] = (
+    ("bond_universe", "idx_bu_user_friendly_id", ("user_friendly_id",), True),
+    (
+        "bond_universe",
+        "idx_bu_issuer_pillar_issue",
+        ("issuer", "closest_tenor_pillar", "issue_date"),
+        False,
+    ),
+    ("bond_universe", "idx_bu_issuer_maturity_issue", ("issuer", "maturity", "issue_date"), False),
+    (
+        "bond_universe",
+        "idx_bu_issuer_coupon_maturity_issue",
+        ("issuer", "coupon", "maturity", "issue_date"),
+        False,
+    ),
+    ("bond_analytics", "idx_ba_bond_id", ("bond_id",), False),
+    ("bond_analytics", "idx_ba_bond_trade", ("bond_id", "trade_date"), False),
+    (
+        "bond_analytics",
+        "idx_ba_bond_trade_curve",
+        ("bond_id", "trade_date", "curve_settings"),
+        False,
+    ),
+    (
+        "bond_analytics",
+        "idx_ba_bond_trade_input",
+        ("bond_id", "trade_date", "input_column"),
+        False,
+    ),
+    ("bond_analytics", "idx_ba_created_at", ("created_at",), False),
+    (
+        "cmt_analytics",
+        "idx_ca_issuer_tenor_trade",
+        ("issuer", "tenor_label", "trade_date"),
+        False,
+    ),
+    (
+        "cmt_analytics",
+        "idx_ca_issuer_trade_maturity",
+        ("issuer", "trade_date", "maturity_date"),
+        False,
+    ),
+)
+
+EXPECTED_INDEX_NAMES: frozenset[str] = frozenset(index_name for _, index_name, _, _ in INDEXES)
+
+TABLE_CREATE_ORDER: tuple[str, ...] = (
+    "tenor_pillars",
+    "bond_universe",
+    "cmt_analytics",
+    "bond_analytics",
+)
+
 
 def load_semantics(path: Path) -> dict:
     with path.open(encoding="utf-8") as handle:
@@ -162,18 +237,91 @@ def open_sink(db_path: Path) -> DataSink:
     )
 
 
-def create_schema(db: DataSink, semantics: dict) -> None:
+def _quoted_columns(columns: tuple[str, ...]) -> str:
+    return ", ".join(f'"{column}"' for column in columns)
+
+
+def _inline_foreign_key_clauses(table_name: str, backend: str) -> list[str]:
+    clauses: list[str] = []
+    for child_table, child_col, parent_table, parent_col, on_delete in FOREIGN_KEYS:
+        if child_table != table_name:
+            continue
+        if backend == "duckdb":
+            clauses.append(
+                f'FOREIGN KEY ("{child_col}") REFERENCES "{parent_table}" ("{parent_col}")'
+            )
+        else:
+            clauses.append(
+                f'FOREIGN KEY ("{child_col}") REFERENCES "{parent_table}" ("{parent_col}") '
+                f"ON DELETE {on_delete}"
+            )
+    return clauses
+
+
+def create_tables(db: DataSink, semantics: dict) -> None:
+    """Create tables from semantics YAML with inline primary and foreign keys."""
     backend = db.name
-    for table_name, spec in table_specs(semantics).items():
-        col_defs = ", ".join(
+    specs = table_specs(semantics)
+    for table_name in TABLE_CREATE_ORDER:
+        spec = specs[table_name]
+        parts = [
             f'"{name}" {sql_column_type(meta.get("type", "TEXT"), backend)}'
             for name, meta in spec["columns"].items()
-        )
+        ]
+        pk_cols = TABLE_PRIMARY_KEYS.get(table_name)
+        if pk_cols:
+            parts.append(f"PRIMARY KEY ({_quoted_columns(pk_cols)})")
+        parts.extend(_inline_foreign_key_clauses(table_name, backend))
+        col_defs = ", ".join(parts)
         if backend == "duckdb":
             db.execute(f'CREATE OR REPLACE TABLE "{table_name}" ({col_defs})')
         else:
             db.execute(f'DROP TABLE IF EXISTS "{table_name}"')
             db.execute(f'CREATE TABLE "{table_name}" ({col_defs})')
+
+
+def create_indexes(db: DataSink) -> None:
+    """Create secondary indexes for query access patterns."""
+    for table_name, index_name, columns, unique in INDEXES:
+        unique_sql = "UNIQUE " if unique else ""
+        cols_sql = _quoted_columns(columns)
+        db.execute(
+            f"CREATE {unique_sql}INDEX IF NOT EXISTS {index_name} "
+            f'ON "{table_name}" ({cols_sql})'
+        )
+
+
+def analyze_statistics(db: DataSink) -> None:
+    """Refresh planner statistics after bulk load."""
+    db.execute("ANALYZE")
+
+
+def list_index_names(db: DataSink) -> set[str]:
+    """Return user-defined index names in the database."""
+    if db.name == "sqlite":
+        rows = db.execute(
+            "SELECT name FROM sqlite_master "
+            "WHERE type = 'index' AND name NOT LIKE 'sqlite_%'"
+        )
+        return {row["name"] for row in rows}
+    rows = db.execute(
+        "SELECT index_name FROM duckdb_indexes() "
+        "WHERE index_name NOT LIKE 'sqlite_%'"
+    )
+    return {row["index_name"] for row in rows}
+
+
+def verify_schema(db: DataSink) -> None:
+    """Assert expected indexes were created."""
+    missing = EXPECTED_INDEX_NAMES - list_index_names(db)
+    if missing:
+        raise RuntimeError(f"Missing expected indexes: {sorted(missing)}")
+
+
+def create_schema(db: DataSink, semantics: dict) -> None:
+    """Create tables and indexes."""
+    create_tables(db, semantics)
+    create_indexes(db)
 
 
 def tenor_pillars_dataframe(issuer_codes: list[str]) -> pl.DataFrame:
@@ -392,9 +540,13 @@ def build_bond_analytics_db(
         db_path.unlink()
 
     with open_sink(db_path) as db:
+        if db.name == "sqlite":
+            db.execute("PRAGMA foreign_keys = ON")
         create_schema(db, semantics)
         populate_tenor_pillars(db, issuer_codes)
         bond_count = populate_bond_universe(db, csv_dir, issuers_to_currency=issuers_to_currency)
+        analyze_statistics(db)
+        verify_schema(db)
 
     print(f"Created {db_path} ({db_path.suffix})")
     print(f"  tenor_pillars rows: {len(issuer_codes)}")

@@ -183,7 +183,7 @@ tables:
 
 cmt_analytics:
     description: 
-      analytics (price, yield, duration, convexity, etc.) for a particular CMT tenor at a particular settlement date using a particular yield curve 
+      analytics (price, yield, duration, convexity, etc.) for a particular CMT tenor or maturity at a particular settlement date using a particular yield curve or supplied input yield or input price
     columns:
       cmt_analytic_id: {type: TEXT, description: "A unique identifier for the CMT analytics (must be unique per record in the cmt_analytics table)"}
       issuer: {type: TEXT, description: "Country code, e.g. USA, DEU. these match the issuers dictionary in the vocabulary."}
