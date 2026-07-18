@@ -195,7 +195,7 @@ Five launch profiles are defined in `.vscode/launch.json`:
 
 Local editable packages (via `pyproject.toml` `[tool.uv.sources]`):
 
-- `../framecache`
-- `../mcp_data`
+- `uv add git+https://github.com/FulgentMcGuffin/framecache.git`
+- `uv add git+https://github.com/FulgentMcGuffin/mcp_data.git`
 
 PyPI: `QuantLib`, `polars`, `pyside6`, `plotnine`, `pyyaml`, `python-dotenv`
