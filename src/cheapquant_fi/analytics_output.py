@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, fields
 
 # Metric column names from semantics/bond_analytics.yaml (bond_analytics, lines 106-136).
@@ -92,3 +93,7 @@ class FixedIncomeAnalyticsOutput:
             for field in fields(self)
             if (value := getattr(self, field.name)) is not None
         }
+
+    def as_json(self, **kwargs) -> str:
+        """Return populated metrics as a JSON object string."""
+        return json.dumps(self.as_dict(), **kwargs)

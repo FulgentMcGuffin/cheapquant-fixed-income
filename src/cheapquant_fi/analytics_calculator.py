@@ -8,7 +8,7 @@ from cheapquant_fi.analytics_input import BondAnalyticsInput, CmtAnalyticsInput
 from cheapquant_fi.analytics_output import FixedIncomeAnalyticsOutput
 
 if TYPE_CHECKING:
-    from cheapquant_fi.quantlib.quantlib_market_context import MarketContext
+    from cheapquant_fi.quantlib.quantlib_market_context import QuantlibMarketContext
 
 
 @runtime_checkable
@@ -18,7 +18,7 @@ class AnalyticsCalculator(Protocol):
     def compute_bond_analytics(
         self,
         request: BondAnalyticsInput,
-        market: MarketContext,
+        market: QuantlibMarketContext,
         *,
         curve_label: str = "default",
     ) -> FixedIncomeAnalyticsOutput:
@@ -27,8 +27,9 @@ class AnalyticsCalculator(Protocol):
     def compute_cmt_analytics(
         self,
         request: CmtAnalyticsInput,
-        market: MarketContext,
+        market: QuantlibMarketContext,
         *,
         curve_label: str = "default",
     ) -> FixedIncomeAnalyticsOutput:
         """Return analytics for a constant-maturity instrument (zero- or fixed-coupon)."""
+

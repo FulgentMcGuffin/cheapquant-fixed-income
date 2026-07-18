@@ -52,6 +52,13 @@ def _semantics_dir_from_value(value: str | Path) -> Path:
     return _resolve_path(path)
 
 
+def _parse_bool(value: object) -> bool:
+    if isinstance(value, bool):
+        return value
+    text = str(value).strip().lower()
+    return text in ("1", "true", "yes", "on")
+
+
 @dataclass(frozen=True)
 class AppSettings:
     """Resolved runtime paths and dataset names."""
@@ -59,9 +66,11 @@ class AppSettings:
     config_path: Path
     input_db_path: Path
     input_semantics_dir: Path
+    bond_analytics_db_path: Path
     cache_db_path: Path
     cache_semantics_dir: Path
     sessions_dir: Path
+    write_to_bond_analytics_db: bool = False
 
     @property
     def input_dataset(self) -> str:
@@ -86,20 +95,38 @@ class AppSettings:
         if not isinstance(paths, dict):
             raise ValueError(f"Config {config_path} must contain a 'paths' mapping.")
 
+        settings = data.get("settings") or {}
+        if not isinstance(settings, dict):
+            raise ValueError(f"Config {config_path} 'settings' must be a mapping.")
+
         def _get(key: str, env_key: str, default: str | None = None) -> str:
             return os.environ.get(env_key) or str(paths.get(key, default or ""))
 
+        def _get_bool(key: str, env_key: str, default: bool = False) -> bool:
+            env_val = os.environ.get(env_key)
+            if env_val is not None and env_val.strip():
+                return _parse_bool(env_val)
+            yaml_val = settings.get(key)
+            if yaml_val is not None:
+                return _parse_bool(yaml_val)
+            return default
+
         input_db = _get("input_db", "CQFI_INPUT_DB")
         input_semantics = _get("input_semantics", "CQFI_INPUT_SEMANTICS")
+        bond_analytics_db = _get("bond_analytics_db", "CQFI_BOND_ANALYTICS_DB")
         cache_db = _get("cache_db", "CQFI_CACHE_DB")
         cache_semantics = _get("cache_semantics_dir", "CQFI_CACHE_SEMANTICS")
         sessions = _get("sessions_dir", "CQFI_SESSIONS_DIR")
+        write_to_bond_analytics_db = _get_bool(
+            "write_to_bond_analytics_db", "CQFI_WRITE_TO_BOND_ANALYTICS_DB"
+        )
 
         missing = [
             name
             for name, val in [
                 ("input_db", input_db),
                 ("input_semantics", input_semantics),
+                ("bond_analytics_db", bond_analytics_db),
                 ("cache_db", cache_db),
                 ("cache_semantics_dir", cache_semantics),
                 ("sessions_dir", sessions),
@@ -115,13 +142,16 @@ class AppSettings:
             config_path=config_path,
             input_db_path=_resolve_path(input_db),
             input_semantics_dir=_semantics_dir_from_value(input_semantics),
+            bond_analytics_db_path=_resolve_path(bond_analytics_db),
             cache_db_path=_resolve_path(cache_db),
             cache_semantics_dir=_resolve_path(cache_semantics),
             sessions_dir=_resolve_path(sessions),
+            write_to_bond_analytics_db=write_to_bond_analytics_db,
         )
 
     def ensure_dirs(self) -> None:
         self.cache_db_path.parent.mkdir(parents=True, exist_ok=True)
+        self.bond_analytics_db_path.parent.mkdir(parents=True, exist_ok=True)
         self.sessions_dir.mkdir(parents=True, exist_ok=True)
         self.cache_semantics_dir.mkdir(parents=True, exist_ok=True)
 

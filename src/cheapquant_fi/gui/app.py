@@ -17,9 +17,9 @@ arguments, which picks up its database path from environment variables
 This entry point therefore performs three tasks **before** importing anything
 from the ``gui/`` package:
 
-1. Load CQFI settings from ``config/cqfi_gui.yaml`` (or a custom path).
+1. Load CQFI settings from ``config/cqfi.yaml`` (or a custom path).
 2. Set the MCP environment variables so ``LlmWorker`` connects to the
-   correct ``input_data.db`` and its semantic profile.
+   correct yield-curve database and its semantic profile.
 3. Prepend the ``gui/`` directory to ``sys.path`` so the bare imports work.
 """
 
@@ -38,14 +38,11 @@ configure_langsmith()
 from cheapquant_fi.config import (  # noqa: E402
     DEFAULT_CONFIG_PATH,
     AppSettings,
-    get_settings,
     load_settings,
 )
 
 # Resolved at import time so they are available to helpers below.
 _GUI_DIR = Path(__file__).resolve().parent
-_PROJECT_ROOT = _GUI_DIR.parents[2]  # …/src/cheapquant_fi/gui → project root
-_GUI_CONFIG_PATH = _PROJECT_ROOT / "config" / "cqfi_gui.yaml"
 
 
 # ── sys.path bootstrap ────────────────────────────────────────────────────────
@@ -96,19 +93,14 @@ def main() -> None:
         help=(
             f"YAML config file for database and semantics paths.\n"
             f"Resolution order: --config flag → CQFI_CONFIG env var →\n"
-            f"  {_GUI_CONFIG_PATH} (gui default) →\n"
-            f"  {DEFAULT_CONFIG_PATH} (cli default)."
+            f"  {DEFAULT_CONFIG_PATH}."
         ),
     )
     # Forward unrecognised args to Qt (e.g. --platform, -style).
     args, qt_extra = parser.parse_known_args()
 
     # ── Config resolution ─────────────────────────────────────────────────────
-    config_path: str | Path = (
-        args.config
-        or os.environ.get("CQFI_CONFIG")
-        or (_GUI_CONFIG_PATH if _GUI_CONFIG_PATH.exists() else DEFAULT_CONFIG_PATH)
-    )
+    config_path: str | Path | None = args.config or os.environ.get("CQFI_CONFIG")
 
     app_settings = load_settings(config_path)
     app_settings.ensure_dirs()

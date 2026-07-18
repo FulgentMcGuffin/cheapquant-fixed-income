@@ -15,7 +15,7 @@ from framecache.cache_config import CacheConfig
 from cheapquant_fi.cache.registry import CacheRegistry
 from cheapquant_fi.config import AppSettings, get_settings
 from cheapquant_fi.issuers import RateType
-from cheapquant_fi.quantlib.cmt import price_cmts
+from cheapquant_fi.quantlib.cmt import ql_price_cmts
 
 
 class CacheManager:
@@ -55,7 +55,7 @@ class CacheManager:
             valuation_date: str,
             rate_type: str = "zero",
         ) -> pl.DataFrame:
-            return price_cmts(db_path, source, valuation_date, rate_type=rate_type)
+            return ql_price_cmts(db_path, source, valuation_date, rate_type=rate_type)
 
         self._cached_price_cmts = _cached_price_cmts
 

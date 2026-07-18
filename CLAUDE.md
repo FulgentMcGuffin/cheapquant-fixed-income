@@ -77,7 +77,7 @@ uv run main.py                   # IDE-friendly; auto-relaunches with .venv
 ### Run GUI
 ```powershell
 uv run cqfi-gui
-uv run cqfi-gui --config config/cqfi_gui.yaml
+uv run cqfi-gui --config config/cqfi.yaml
 ```
 
 ### Run Tests
@@ -138,32 +138,41 @@ Launch profiles in `.vscode/launch.json`:
 
 ## Configuration Files
 
-### YAML Config (`config/cqfi.yaml`, `config/cqfi_gui.yaml`)
-Defines paths for databases and semantics:
+### YAML Config (`config/cqfi.yaml`)
+Shared by CLI and GUI. Defines paths and settings:
 ```yaml
 paths:
-  input_db: C:\data\sqlitedb\input_data.db
-  input_semantics: D:\Code\mcp_data\semantics\input_data.yaml
+  input_db: D:/data/duckdb/ycs_data.duckdb
+  input_semantics: ./semantics/ycs_data.yaml
+  bond_analytics_db: D:/data/duckdb/bond_analytics.duckdb
   cache_db: ./data/cache/active_cache.db
   cache_semantics_dir: ./semantics
-  sessions_dir: ./data/sessions/
+  sessions_dir: ./data/sessions
+
+settings:
+  write_to_bond_analytics_db: true
 ```
-- **input_db** — read-only SQLite with yield curves
-- **input_semantics** — YAML profile describing input_data schema for mcp-data
+- **input_db** — read-only DuckDB or SQLite database with yield curves (zero rates and par rates) and spot FX rates
+- **input_semantics** — YAML profile describing ycs_data schema for mcp-data
+- **bond_analytics_db** — DuckDB or SQLite for bond analytics (historical analytics DB)
 - **cache_db** — writable SQLite where framecache stores results
-- **cache_semantics_dir** — YAML profiles for cache tables (quant_cache.yaml)
+- **cache_semantics_dir** — YAML profiles for cache tables
+- **write_to_bond_analytics_db** — whether to persist analytics into the bond analytics DB
 
 ### Environment Variables
 - **`ANTHROPIC_API_KEY`** — Claude API key; enables LLM mode
 - **`CQFI_CONFIG`** — override default config path
-- **`CQFI_INPUT_DB`, `CQFI_INPUT_SEMANTICS`, etc.** — override individual config keys
+- **`CQFI_INPUT_DB`, `CQFI_INPUT_SEMANTICS`, `CQFI_BOND_ANALYTICS_DB`, `CQFI_CACHE_DB`, etc.** — optional per-path overrides in `.env`
+- **`CQFI_WRITE_TO_BOND_ANALYTICS_DB`** — override `settings.write_to_bond_analytics_db`
 - **`CQFI_LANGSMITH`** — set to `1` to enable LangSmith tracing (normally off to avoid 403 noise)
 
 ### `.env` File
+Secrets and optional machine-specific overrides. Copy from `.env.example`.
+Path overrides take precedence over `config/cqfi.yaml` when set.
 ```
 ANTHROPIC_API_KEY=sk-ant-...
 ```
-Loaded by `config.py` via `python-dotenv`; takes precedence over environment.
+Loaded by `config.py` via `python-dotenv`; does not override existing shell env.
 
 ## Dependencies and Integrations
 
@@ -188,7 +197,7 @@ Tests live in `tests/` and use pytest:
 - `test_cmt.py` — Query routing, pricing, issuer conventions
 - `test_curve.py` — Curve construction and interpolation methods
 
-Tests require `input_data.db` to exist at the configured path; fall back to mocking or fixtures if the DB is unavailable.
+Tests require the configured input database to exist at the path in `config/cqfi.yaml`; fall back to mocking or fixtures if unavailable.
 
 ## Important Design Patterns
 
@@ -211,7 +220,7 @@ Queries are auto-routed to INPUT (yield curves) or CACHE (pricing results) based
 ## Debugging Tips
 
 - **Config not loading?** Check `CQFI_CONFIG`, default is `config/cqfi.yaml`
-- **Missing input_data.db?** Set `CQFI_INPUT_DB` or update the YAML config
+- **Missing ycs_data database?** Set `CQFI_INPUT_DB` or update `config/cqfi.yaml`
 - **LangSmith 403 errors?** Set `CQFI_LANGSMITH=0` or don't set `LANGCHAIN_TRACING_V2=true` globally
 - **GUI not rendering?** Check PySide6 installation; may require a graphics environment
 - **QuantLib import fails?** Ensure QuantLib package is installed; on Windows, may need pre-built wheels

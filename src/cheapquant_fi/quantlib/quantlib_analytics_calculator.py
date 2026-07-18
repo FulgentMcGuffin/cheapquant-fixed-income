@@ -9,7 +9,7 @@ import QuantLib as ql
 from cheapquant_fi.analytics_input import BondAnalyticsInput, CmtAnalyticsInput
 from cheapquant_fi.analytics_output import FixedIncomeAnalyticsOutput
 from cheapquant_fi.issuers import IssuerProfile, resolve_issuer
-from cheapquant_fi.quantlib.quantlib_market_context import MarketContext
+from cheapquant_fi.quantlib.quantlib_market_context import QuantlibMarketContext
 from cheapquant_fi.tenors import TENOR_COLUMN_TO_YEARS, label_to_column
 
 _INPUT_PRICE_FIELDS = frozenset({"clean_price", "yield_to_maturity"})
@@ -32,7 +32,7 @@ class QuantLibAnalyticsCalculator:
     def compute_bond_analytics(
         self,
         request: BondAnalyticsInput,
-        market: MarketContext,
+        market: QuantlibMarketContext,
         *,
         curve_label: str = "default",
     ) -> FixedIncomeAnalyticsOutput:
@@ -59,7 +59,7 @@ class QuantLibAnalyticsCalculator:
     def compute_cmt_analytics(
         self,
         request: CmtAnalyticsInput,
-        market: MarketContext,
+        market: QuantlibMarketContext,
         *,
         curve_label: str = "default",
     ) -> FixedIncomeAnalyticsOutput:
@@ -103,7 +103,7 @@ class QuantLibAnalyticsCalculator:
 
     def _bond_curve(
         self,
-        market: MarketContext,
+        market: QuantlibMarketContext,
         issuer_code: str,
         curve_label: str,
     ) -> ql.YieldTermStructureHandle:

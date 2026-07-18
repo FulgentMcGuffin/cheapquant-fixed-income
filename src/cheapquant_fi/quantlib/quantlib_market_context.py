@@ -122,7 +122,7 @@ class SwapCurveKey:
 
 
 @dataclass
-class CurveCollection:
+class QuantLibCurveCollection:
     """Yield curves as of a single valuation date or datetime.
 
     Bond curves are indexed by sovereign issuer code (``USA``, ``DEU``, …) as
@@ -199,7 +199,7 @@ class CurveCollection:
 
 
 @dataclass
-class MarketContext:
+class QuantlibMarketContext:
     """Aggregated market data: curve collections and FX cross tables.
 
     Multiple labelled instances are supported (e.g. spot vs forward FX, or
@@ -207,17 +207,17 @@ class MarketContext:
     only one instance of each type is present.
     """
 
-    curve_collections: dict[str, CurveCollection] = field(default_factory=dict)
+    curve_collections: dict[str, QuantLibCurveCollection] = field(default_factory=dict)
     fx_rates: dict[str, FXC] = field(default_factory=dict)
 
     def add_curve_collection(
         self,
-        collection: CurveCollection,
+        collection: QuantLibCurveCollection,
         label: str = "default",
     ) -> None:
         self.curve_collections[label] = collection
 
-    def curve_collection(self, label: str = "default") -> CurveCollection:
+    def curve_collection(self, label: str = "default") -> QuantLibCurveCollection:
         try:
             return self.curve_collections[label]
         except KeyError as exc:

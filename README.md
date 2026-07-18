@@ -62,17 +62,19 @@ uv sync
 copy .env.example .env   # optional — set ANTHROPIC_API_KEY for LLM mode
 ```
 
-Paths are configured in `config/cqfi.yaml` (CLI) and `config/cqfi_gui.yaml`
-(GUI), both loaded automatically at startup. Override with `--config` or
-the `CQFI_CONFIG` environment variable.
+Paths are configured in `config/cqfi.yaml`, shared by both `cqfi` and
+`cqfi-gui`. Override with `--config` or the `CQFI_CONFIG` environment variable.
+Optional per-path overrides live in `.env` (see `.env.example`).
 
 | Setting | Config key | Default |
 |---------|------------|---------|
-| Input DB | `paths.input_db` | `C:\data\sqlitedb\input_data.db` |
-| Input semantics | `paths.input_semantics` | `D:\Code\mcp_data\semantics\input_data.yaml` |
+| Input DB (ycs) | `paths.input_db` | `D:/data/duckdb/ycs_data.duckdb` |
+| Input semantics | `paths.input_semantics` | `./semantics/ycs_data.yaml` |
+| Bond analytics DB | `paths.bond_analytics_db` | `D:/data/duckdb/bond_analytics.duckdb` |
 | Active cache | `paths.cache_db` | `./data/cache/active_cache.db` |
 | Sessions | `paths.sessions_dir` | `./data/sessions/` |
 | Cache semantics | `paths.cache_semantics_dir` | `./semantics` |
+| Write analytics to bond DB | `settings.write_to_bond_analytics_db` | `true` |
 
 ## CLI usage (`cqfi`)
 
@@ -119,10 +121,10 @@ opt in (requires `LANGCHAIN_API_KEY`).
 
 ```powershell
 uv run cqfi-gui
-uv run cqfi-gui --config config/cqfi_gui.yaml
+uv run cqfi-gui --config config/cqfi.yaml
 ```
 
-`cqfi-gui` reads `config/cqfi_gui.yaml` first, falling back to `config/cqfi.yaml`.
+`cqfi-gui` uses the same `config/cqfi.yaml` as the CLI by default.
 Set `ANTHROPIC_API_KEY` in `.env` to enable LLM-powered queries.
 
 ## Curve interpolation methods
@@ -172,8 +174,7 @@ src/cheapquant_fi/
   agent/cli.py           — CLI REPL entry point (cqfi)
   gui/app.py             — GUI entry point (cqfi-gui)
   gui/chat_dialog.py     — ChatDialog window (chat + table + plot)
-config/cqfi.yaml           — CLI default path configuration
-config/cqfi_gui.yaml       — GUI default path configuration
+config/cqfi.yaml           — path and settings configuration (CLI + GUI)
 semantics/quant_cache.yaml — semantic profile for cached results
 .vscode/launch.json        — Cursor/VS Code debug configurations
 ```
@@ -187,7 +188,7 @@ Five launch profiles are defined in `.vscode/launch.json`:
 | `cqfi` | CLI interactive REPL |
 | `cqfi: one-shot query` | CLI with a single query argument (edit in `launch.json`) |
 | `cqfi: price CMT` | CLI pricing smoke-run (`USA 2020-01-02`) |
-| `cqfi-gui` | GUI window (uses `config/cqfi_gui.yaml`) |
+| `cqfi-gui` | GUI window (uses `config/cqfi.yaml`) |
 | `cqfi-gui: custom config` | GUI window with explicit `--config` flag |
 
 ## Dependencies

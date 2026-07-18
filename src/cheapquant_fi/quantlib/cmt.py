@@ -16,7 +16,7 @@ def _to_ql_date(value: date) -> ql.Date:
     return ql.Date(value.day, value.month, value.year)
 
 
-def price_cmts_from_rates(
+def ql_price_cmts_from_rates(
     issuer: IssuerProfile,
     valuation_date: date,
     rates_df: pl.DataFrame,
@@ -117,7 +117,7 @@ def price_cmts_from_rates(
     return pl.DataFrame(rows).sort("tenor_years")
 
 
-def price_cmts(
+def ql_price_cmts(
     db_path: str,
     source: str,
     valuation_date: str | date,
@@ -154,7 +154,7 @@ def price_cmts(
         valuation_date,
         rate_type=rate_type,
     )
-    return price_cmts_from_rates(
+    return ql_price_cmts_from_rates(
         issuer,
         valuation_date,
         rates_df,

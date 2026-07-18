@@ -12,8 +12,8 @@ import polars as pl
 import yaml
 from mcp_data.backends import DataSink, DuckDBSource, SQLiteSource
 
-DEFAULT_DB_PATH = Path("D:/data/duckdb/bond_analytics.duckdb")
-# DEFAULT_DB_PATH = Path("D:/data/sqlitedb/bond_analytics.db")
+# DEFAULT_DB_PATH = Path("D:/data/duckdb/bond_analytics.duckdb")
+DEFAULT_DB_PATH = Path("D:/data/sqlite/bond_analytics.sqlite")
 
 DEFAULT_SEMANTICS_PATH = Path(__file__).resolve().parents[3] / "semantics" / "bond_analytics.yaml"
 DEFAULT_CSV_DIR = Path("D:/bond_csvs")
@@ -132,6 +132,10 @@ def unique_issuer_acronyms(semantics: dict) -> list[str]:
     issuers = semantics.get("vocabulary", {}).get("issuers", {})
     return sorted(set(issuers.values()))
 
+def issuers_to_currency_dict(semantics: dict) -> dict[str, str]:
+    currencies = semantics.get("vocabulary", {}).get("currencies", {})
+    return {issuer: currency for issuer, currency in currencies.items()}
+
 
 def table_specs(semantics: dict) -> dict[str, dict]:
     specs = dict(semantics.get("tables", {}))
@@ -150,11 +154,11 @@ def open_sink(db_path: Path) -> DataSink:
     """Return a writable mcp_data backend for the given database path."""
     if db_path.suffix == ".duckdb":
         return DuckDBSource(db_path, read_only=False)
-    if db_path.suffix == ".db":
+    if db_path.suffix in [".db", ".sqlite"]:
         return SQLiteSource(db_path, read_only=False)
     raise ValueError(
         f"Unsupported bond analytics database extension {db_path.suffix!r}; "
-        "expected .duckdb or .db"
+        "expected .duckdb or .db or .sqlite"
     )
 
 
@@ -310,7 +314,7 @@ def _parse_float(value: object) -> float | None:
     return float(text)
 
 
-def load_bond_records(csv_dir: Path) -> list[dict]:
+def load_bond_records(csv_dir: Path, issuers_to_currency: dict[str, str] = None) -> list[dict]:
     records: list[dict] = []
     for csv_path in sorted(csv_dir.glob("*.csv")):
         issuer = issuer_from_filename(csv_path)
@@ -320,6 +324,9 @@ def load_bond_records(csv_dir: Path) -> list[dict]:
         for row in frame.iter_rows(named=True):
             coupon_raw = row.get("coupon")
             term_raw = row.get("original_term_years")
+            currency = row.get("currency",None)
+            if currency is None:
+                currency = issuers_to_currency[issuer] if issuers_to_currency is not None else None
             records.append(
                 {
                     "bond_id": row.get("isin"),
@@ -332,6 +339,7 @@ def load_bond_records(csv_dir: Path) -> list[dict]:
                     "accrual_start_date": None,
                     "closest_tenor_pillar": closest_tenor_pillar(_parse_float(term_raw)),
                     "issue_amount": None,
+                    "currency": currency,
                     "is_green": _parse_green(row.get(green_col)),
                 }
             )
@@ -353,6 +361,7 @@ def bond_universe_dataframe(records: list[dict]) -> pl.DataFrame:
                 "accrual_start_date": record["accrual_start_date"],
                 "closest_tenor_pillar": record["closest_tenor_pillar"],
                 "issue_amount": record["issue_amount"],
+                "currency": record["currency"],
             }
             for record in records
         ]
@@ -363,8 +372,8 @@ def bond_universe_dataframe(records: list[dict]) -> pl.DataFrame:
     )
 
 
-def populate_bond_universe(db: DataSink, csv_dir: Path) -> int:
-    frame = bond_universe_dataframe(load_bond_records(csv_dir))
+def populate_bond_universe(db: DataSink, csv_dir: Path, issuers_to_currency: dict[str, str] = None) -> int:
+    frame = bond_universe_dataframe(load_bond_records(csv_dir, issuers_to_currency))
     append_polars(db, "bond_universe", frame)
     return frame.height
 
@@ -376,6 +385,7 @@ def build_bond_analytics_db(
 ) -> None:
     semantics = load_semantics(semantics_path)
     issuer_codes = unique_issuer_acronyms(semantics)
+    issuers_to_currency = issuers_to_currency_dict(semantics)
 
     db_path.parent.mkdir(parents=True, exist_ok=True)
     if db_path.exists():
@@ -384,7 +394,7 @@ def build_bond_analytics_db(
     with open_sink(db_path) as db:
         create_schema(db, semantics)
         populate_tenor_pillars(db, issuer_codes)
-        bond_count = populate_bond_universe(db, csv_dir)
+        bond_count = populate_bond_universe(db, csv_dir, issuers_to_currency=issuers_to_currency)
 
     print(f"Created {db_path} ({db_path.suffix})")
     print(f"  tenor_pillars rows: {len(issuer_codes)}")

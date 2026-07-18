@@ -1,0 +1,171 @@
+# Semantic profile for the `ycs_data` dataset (D:/data/duckdb/ycs_data.duckdb or D:/data/sqlite/ycs_data.sqlite).
+#
+# This is the business-logic layer the LLM uses to translate domain questions
+# into SQL. Tenor columns and the source/date columns are confirmed from
+# src/mcp_data/data/populate_ycs.py. The country/source codes below are a
+# starting point -- verify them against the actual `source` values in the DB
+# (e.g. run: SELECT DISTINCT source FROM zero_rates) and extend as needed.
+
+dataset: ycs_data
+backend: duckdb
+description: >
+  Yield-curve and FX time series. zero_rates and par_rates hold one row per
+  (source, date); the tenor columns (Y...) hold the rate for that maturity.
+  spotfx holds spot FX rates. window_corr holds rolling correlations.
+
+vocabulary:
+  # Values stored in the `source` column. Map the country name to its code.
+  countries:
+    Australia: AUS
+    Austria: AUT
+    Belgium: BEL
+    Brazil: BRA
+    Canada: CAN
+    Switzerland: CHE
+    China: CHN
+    Germany: DEU
+    Spain: ESP
+    France: FRA
+    United Kingdom: GBR
+    Greece: GRC
+    India: IND
+    Ireland: IRL
+    Italy: ITA
+    Japan: JPN
+    Korea: KOR
+    Netherlands: NLD
+    Portugal: PRT
+    Russia: RUS
+    United States: USA
+    Bulgaria: BGR
+    Colombia: COL
+    Croatia: CRO
+    Cyprus: CYP
+    Czech Republic: CZE
+    Denmark: DNK
+    Estonia: EST
+    Finland: FIN
+    Mexico: MEX
+    South Africa: ZAF
+    Saudi Arabia: SAU
+    Singapore: SGP
+    Sweden: SWE
+    Norway: NOR
+    New Zealand: NZL
+
+  # Natural-language tenor -> tenor column name. Naming convention:
+  # "Y" + zero-padded years, "p" replaces the decimal point
+  # (e.g. 0.5Y -> Y000p5, 5Y -> Y005p0, 10Y -> Y010p0, 30Y -> Y030p0).
+  tenors:
+    "6M": Y000p5
+    "1Y": Y001p0
+    "2Y": Y002p0
+    "3Y": Y003p0
+    "4Y": Y004p0
+    "5Y": Y005p0
+    "7Y": Y007p0
+    "10Y": Y010p0
+    "12Y": Y012p0
+    "15Y": Y015p0
+    "20Y": Y020p0
+    "25Y": Y025p0
+    "30Y": Y030p0
+
+conventions:
+  date: >
+    The `date` column is TEXT stored as 'YYYY-MM-DD'. Filter ranges with
+    date >= '<start>' AND date <= '<end>'.
+  tenor_columns: >
+    Tenor columns follow the pattern Y<years:03d>p<tenths> (point replaced by 'p').
+    To compute a spread between two tenors, subtract the two tenor columns.
+
+tables:
+  zero_rates:
+    description: >
+      Zero-coupon (spot) rates per source and date. One row per (source, date);
+      each tenor column holds the zero rate for that maturity.
+    columns:
+      date: {type: TEXT, description: "Observation date (YYYY-MM-DD)."}
+      source: {type: TEXT, description: "Curve/country code, e.g. ITA=Italy, DEU=Germany."}
+      Y000p5: {type: REAL, description: "6-month (0.5Y) zero rate."}
+      Y001p0: {type: REAL, description: "1-year zero rate."}
+      Y002p0: {type: REAL, description: "2-year zero rate."}
+      Y003p0: {type: REAL, description: "3-year zero rate."}
+      Y004p0: {type: REAL, description: "4-year zero rate."}
+      Y005p0: {type: REAL, description: "5-year zero rate."}
+      Y007p0: {type: REAL, description: "7-year zero rate."}
+      Y010p0: {type: REAL, description: "10-year zero rate."}
+      Y012p0: {type: REAL, description: "12-year zero rate."}
+      Y015p0: {type: REAL, description: "15-year zero rate."}
+      Y020p0: {type: REAL, description: "20-year zero rate."}
+      Y025p0: {type: REAL, description: "25-year zero rate."}
+      Y030p0: {type: REAL, description: "30-year zero rate."}
+  par_rates:
+    description: >
+      Par rates per source and date, same tenor-column layout as zero_rates.
+    columns:
+      date: {type: TEXT, description: "Observation date (YYYY-MM-DD)."}
+      source: {type: TEXT, description: "Curve/country code, e.g. ITA=Italy."}
+      Y000p5: {type: REAL, description: "6-month (0.5Y) par rate."}
+      Y001p0: {type: REAL, description: "1-year par rate."}
+      Y002p0: {type: REAL, description: "2-year par rate."}
+      Y003p0: {type: REAL, description: "3-year par rate."}
+      Y004p0: {type: REAL, description: "4-year par rate."}
+      Y005p0: {type: REAL, description: "5-year par rate."}
+      Y007p0: {type: REAL, description: "7-year par rate."}
+      Y010p0: {type: REAL, description: "10-year par rate."}
+      Y012p0: {type: REAL, description: "12-year par rate."} 
+      Y015p0: {type: REAL, description: "15-year par rate."}
+      Y020p0: {type: REAL, description: "20-year par rate."}
+      Y025p0: {type: REAL, description: "25-year par rate."}
+      Y030p0: {type: REAL, description: "30-year par rate."}
+  spotfx:
+    description: Spot FX rates per source and date.
+    columns:
+      date: {type: TEXT, description: "Observation date (YYYY-MM-DD)."}
+      source: {type: TEXT, description: "the type of data held by this table (spot_fx_rates), do not use this column"}
+      GBPUSD: {type: REAL, description: "FX spot rate for converting USD to GBP (how much USD is needed for 1 GBP)"}
+      EURUSD: {type: REAL, description: "FX spot rate for converting USD to GBP (how much USD is needed for 1 EUR)"}
+      USDJPY: {type: REAL, description: "FX spot rate for converting JPY to USD (how much JPY is needed for 1 USD)"}
+      USDCAD: {type: REAL, description: "FX spot rate for converting CAD to USD (how much CAD is needed for 1 USD)"}
+      AUDUSD: {type: REAL, description: "FX spot rate for converting USD to AUD (how much USD is needed for 1 AUD)"}
+      NZDUSD: {type: REAL, description: "FX spot rate for converting USD to NZD (how much USD is needed for 1 NZD)"}
+      USDCHF: {type: REAL, description: "FX spot rate for converting CHF to USD (how much CHF is needed for 1 USD)"}
+      USDCNY: {type: REAL, description: "FX spot rate for converting CNY to USD (how much CNY is needed for 1 USD)"}
+      USDINR: {type: REAL, description: "FX spot rate for converting INR to USD (how much INR is needed for 1 USD)"}
+      USDMXN: {type: REAL, description: "FX spot rate for converting MXN to USD (how much MXN is needed for 1 USD)"}
+      USDBRL: {type: REAL, description: "FX spot rate for converting BRL to USD (how much BRL is needed for 1 USD)"}
+      USDRUB: {type: REAL, description: "FX spot rate for converting RUB to USD (how much RUB is needed for 1 USD)"}
+      USDKRW: {type: REAL, description: "FX spot rate for converting KRW to USD (how much KRW is needed for 1 USD)"}
+  window_corr:
+    description: >
+      Rolling-window correlations between sources/observables.
+    columns:
+      date: {type: TEXT, description: "Observation date (YYYY-MM-DD)."}
+      Correlation: {type: REAL, description: "the value of the rolling correlation over the window size for the zero_rates of the two sources for the term in the observable column"}
+      observable: {type: TEXT, description: "The observable/term the correlation is computed for. One of the values in the 'tenors' column of the zero_rates table."}
+      source1: {type: TEXT, description: "First source in the correlation pair. One of the values in the 'source' column of the zero_rates table."}
+      source2: {type: TEXT, description: "Second source in the correlation pair. One of the values in the 'source' column of the zero_rates table."}
+      window_size: {type: INTEGER, description: "Rolling window size in observations (e.g. 20, 40, 60, 90)."}
+      corr_type: {type: TEXT, description: "Correlation type: 'pearson' or 'dcorr' (distance correlation)."}
+
+examples:
+  - q: "What is the highest absolute difference in zero rate between the 5Y and 10Y for Italy between 2010 and 2015?"
+    sql: >
+      SELECT MAX(ABS(Y010p0 - Y005p0)) AS max_abs_diff
+      FROM zero_rates
+      WHERE source = 'ITA'
+        AND date >= '2010-01-01' AND date <= '2015-12-31'
+  - q: "Average 10Y zero rate for Germany in 2012"
+    sql: >
+      SELECT AVG(Y010p0) AS avg_10y
+      FROM zero_rates
+      WHERE source = 'DEU'
+        AND date >= '2012-01-01' AND date <= '2012-12-31'
+  - q: "Which date had the steepest 2s10s slope (10Y minus 2Y) for Italy?"
+    sql: >
+      SELECT date, (Y010p0 - Y002p0) AS slope_2s10s
+      FROM zero_rates
+      WHERE source = 'ITA'
+      ORDER BY slope_2s10s DESC
+      LIMIT 1

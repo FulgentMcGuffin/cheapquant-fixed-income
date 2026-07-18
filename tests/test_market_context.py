@@ -9,7 +9,7 @@ import polars as pl
 
 from cheapquant_fi.issuers import resolve_issuer
 from cheapquant_fi.quantlib.quantlib_curve import ql_build_zero_curve
-from cheapquant_fi.quantlib.quantlib_market_context import CurveCollection, FXC, MarketContext
+from cheapquant_fi.quantlib.quantlib_market_context import QuantLibCurveCollection, FXC, QuantlibMarketContext
 
 
 def test_market_context_usa_curve_and_fx():
@@ -26,13 +26,13 @@ def test_market_context_usa_curve_and_fx():
     )
     curve_handle, _ = ql_build_zero_curve(issuer, as_of, rates_df)
 
-    curves = CurveCollection(as_of=as_of)
+    curves = QuantLibCurveCollection(as_of=as_of)
     curves.set_bond_curve("USA", curve_handle)
 
     fx = FXC(as_of=as_of)
     fx.set_rate("AUD", "USD", 1.45)
 
-    mktctx = MarketContext()
+    mktctx = QuantlibMarketContext()
     mktctx.add_curve_collection(curves)
     mktctx.add_fxc(fx)
 
