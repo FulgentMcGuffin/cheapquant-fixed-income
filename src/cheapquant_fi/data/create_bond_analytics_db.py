@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import random
 from collections import defaultdict
 from datetime import date
@@ -12,10 +13,12 @@ import polars as pl
 import yaml
 from mcp_data.backends import DataSink, DuckDBSource, SQLiteSource
 
-DEFAULT_DB_PATH = Path("D:/data/duckdb/bond_analytics.duckdb")
-# DEFAULT_DB_PATH = Path("D:/data/sqlite/bond_analytics.sqlite")
+from cheapquant_fi.config import DEFAULT_CONFIG_PATH, AppSettings
 
-DEFAULT_SEMANTICS_PATH = Path(__file__).resolve().parents[3] / "semantics" / "bond_analytics.yaml"
+_config_path = os.environ.get("CQFI_CONFIG", DEFAULT_CONFIG_PATH)
+_settings = AppSettings.from_yaml(_config_path)
+DEFAULT_DB_PATH = _settings.bond_analytics_db_path
+DEFAULT_SEMANTICS_PATH = _settings.bond_analytics_semantics_path
 DEFAULT_CSV_DIR = Path("D:/bond_csvs")
 
 TENOR_PILLAR_COLUMNS = (

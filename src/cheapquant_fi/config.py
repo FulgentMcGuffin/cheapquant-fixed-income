@@ -99,6 +99,7 @@ class AppSettings:
     ycs_semantics_dir: Path
     bond_analytics_db_path: Path
     bond_analytics_semantics_dir: Path
+    bond_analytics_semantics_path: Path
     cache_db_path: Path
     cache_semantics_dir: Path
     sessions_dir: Path
@@ -184,6 +185,7 @@ class AppSettings:
         cache_db_path = _resolve_path(cache_db)
         cache_semantics_dir = _resolve_path(cache_semantics)
         bond_analytics_semantics_dir = _semantics_dir_from_value(bond_analytics_semantics)
+        bond_analytics_semantics_path = _resolve_path(bond_analytics_semantics)
 
         mcp_datasets: dict[str, DatasetConfig] = {
             "input": DatasetConfig(
@@ -228,6 +230,7 @@ class AppSettings:
             ycs_semantics_dir=_semantics_dir_from_value(ycs_semantics),
             bond_analytics_db_path=bond_analytics_db_path,
             bond_analytics_semantics_dir=bond_analytics_semantics_dir,
+            bond_analytics_semantics_path=bond_analytics_semantics_path,
             cache_db_path=cache_db_path,
             cache_semantics_dir=cache_semantics_dir,
             sessions_dir=_resolve_path(sessions),
