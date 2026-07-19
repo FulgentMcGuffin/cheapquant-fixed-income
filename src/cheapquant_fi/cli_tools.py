@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from datetime import date, datetime
 
+from langchain_core.tools import StructuredTool
+
 from cheapquant_fi.bond_manager import BondManager
 from cheapquant_fi.quantlib.quantlib_market_context_manager import (
     QuantlibMarketContextManager,
@@ -110,63 +112,18 @@ def get_bond(bond_id: str) -> dict:
         }
 
 
-def get_mctx_tool_definition() -> dict:
-    """Return JSON schema for the market context tool for LLM use."""
-    return {
-        "name": "check_market_context",
-        "description": (
-            "Check if a QuantLib market context exists for a given date, issuer, and curve. "
-            "If it doesn't exist, create it and make it available to the manager. "
-            "Returns whether the context exists or was successfully created."
-        ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "as_of": {
-                    "type": "string",
-                    "description": "Valuation date in YYYY-MM-DD or YYYY-MM-DD HH:MM:SS format",
-                    "examples": ["2022-02-17", "2024-02-15", "2025-11-18 10:30:45"],
-                },
-                "issuer": {
-                    "type": "string",
-                    "description": (
-                        "Optional issuer code (e.g., USA, DEU, FRA, GBR, JPN, etc.). "
-                        "If omitted, checks/creates full market context."
-                    ),
-                    "examples": ["USA", "DEU", "FRA"],
-                },
-                "curve_label": {
-                    "type": "string",
-                    "description": "Curve collection label (BOND_ZERO or BOND_PAR)",
-                    "enum": ["BOND_ZERO", "BOND_PAR"],
-                    "default": "BOND_ZERO",
-                },
-            },
-            "required": ["as_of"],
-        },
-    }
+# Real, executable LangChain tools — bound directly into SQLAgent/LLMPlanner via
+# extra_tools so the LLM can genuinely call get_bond / check_market_context (not
+# just read a text description of them). Schemas are derived from the Google-style
+# docstrings and type hints on the plain functions above via parse_docstring=True.
+get_bond_lc_tool = StructuredTool.from_function(
+    func=get_bond,
+    name="get_bond",
+    parse_docstring=True,
+)
 
-
-def get_bond_tool_definition() -> dict:
-    """Return JSON schema for the bond lookup tool for LLM use."""
-    return {
-        "name": "get_bond",
-        "description": (
-            "Load a bond from bond_universe by user_friendly_id or bond_id and "
-            "return its fields as JSON. Creates a cached Bond instance when found."
-        ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "bond_id": {
-                    "type": "string",
-                    "description": (
-                        "Bond identifier: user_friendly_id (e.g. usa10y001) or "
-                        "bond_id / ISIN (e.g. US0001)."
-                    ),
-                    "examples": ["usa10y001", "US0001", "deu10y001"],
-                },
-            },
-            "required": ["bond_id"],
-        },
-    }
+check_market_context_lc_tool = StructuredTool.from_function(
+    func=check_market_context,
+    name="check_market_context",
+    parse_docstring=True,
+)

@@ -9,18 +9,16 @@ module imports that only resolve when the ``gui/`` directory is on ``sys.path``:
     from gui_constants import Theme, ...
     ...
 
-``LlmWorker`` inside ``chat_dialog.py`` creates a ``DBClient()`` with no
-arguments, which picks up its database path from environment variables
-(``MCP_DB_PATH``, ``MCP_DATASET``, ``MCP_SEMANTICS_DIR``) defined by the
-``mcp-data`` package.
+``LlmWorker`` inside ``chat_dialog.py`` routes each query to the right
+dataset (input / cache / bond_analytics / ...) the same way the CLI does, via
+the ``AppSettings`` passed into ``ChatDialog`` -- it no longer depends on a
+single global ``MCP_DB_PATH`` env var for the whole session.
 
-This entry point therefore performs three tasks **before** importing anything
+This entry point therefore performs two tasks **before** importing anything
 from the ``gui/`` package:
 
 1. Load CQFI settings from ``config/cqfi.yaml`` (or a custom path).
-2. Set the MCP environment variables so ``LlmWorker`` connects to the
-   correct yield-curve database and its semantic profile.
-3. Prepend the ``gui/`` directory to ``sys.path`` so the bare imports work.
+2. Prepend the ``gui/`` directory to ``sys.path`` so the bare imports work.
 """
 
 from __future__ import annotations
@@ -37,7 +35,6 @@ configure_langsmith()
 
 from cheapquant_fi.config import (  # noqa: E402
     DEFAULT_CONFIG_PATH,
-    AppSettings,
     load_settings,
 )
 
@@ -52,25 +49,6 @@ def _bootstrap_sys_path() -> None:
     gui_dir = str(_GUI_DIR)
     if gui_dir not in sys.path:
         sys.path.insert(0, gui_dir)
-
-
-# ── MCP environment wiring ────────────────────────────────────────────────────
-
-def _apply_mcp_env(app: AppSettings) -> None:
-    """Propagate CQFI paths into the MCP environment variables.
-
-    ``LlmWorker`` (inside ``chat_dialog.py``) calls ``DBClient()`` with no
-    arguments; that call reads ``MCP_DB_PATH``, ``MCP_DATASET``, and
-    ``MCP_SEMANTICS_DIR`` from the process environment.  We set them here from
-    the loaded CQFI ``AppSettings`` so the GUI talks to the right database.
-
-    ``setdefault`` is used throughout so that any explicit override set by the
-    user in their shell or ``.env`` file is not silently clobbered.
-    """
-    os.environ.setdefault("MCP_DB_PATH", str(app.ycs_db_path))
-    os.environ.setdefault("MCP_DATASET", app.ycs_dataset)
-    os.environ.setdefault("MCP_SEMANTICS_DIR", str(app.ycs_semantics_dir))
-    os.environ.setdefault("MCP_TRANSPORT", "stdio")
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────
@@ -104,14 +82,12 @@ def main() -> None:
 
     app_settings = load_settings(config_path)
     app_settings.ensure_dirs()
-    _apply_mcp_env(app_settings)
 
     # sys.path must be extended before any gui-module import.
     _bootstrap_sys_path()
 
     # ── Qt application ────────────────────────────────────────────────────────
-    # Deferred import: PySide6 must not be imported before sys.path is ready
-    # and MCP env vars are in place (otherwise LlmWorker may use wrong paths).
+    # Deferred import: PySide6 must not be imported before sys.path is ready.
     from PySide6.QtGui import QFont  # noqa: PLC0415
     from PySide6.QtWidgets import QApplication  # noqa: PLC0415
 
@@ -123,7 +99,7 @@ def main() -> None:
     font.setStyleStrategy(QFont.StyleStrategy.PreferAntialias)
     qt_app.setFont(font)
 
-    window = ChatDialog()
+    window = ChatDialog(app_settings=app_settings)
     window.show()
     sys.exit(qt_app.exec())
 

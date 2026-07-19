@@ -18,7 +18,6 @@ import asyncio
 import re
 import sys
 from dataclasses import dataclass
-from enum import Enum
 from typing import TYPE_CHECKING, Any
 
 import polars as pl
@@ -37,20 +36,20 @@ from cheapquant_fi.agent.planner import (
 from cheapquant_fi.cache.manager import CacheManager
 from cheapquant_fi.cli_tools import (
     check_market_context,
+    check_market_context_lc_tool,
     get_bond,
-    get_bond_tool_definition,
-    get_mctx_tool_definition,
+    get_bond_lc_tool,
 )
 
-
-class DatasetTarget(str, Enum):
-    INPUT = "input"
-    CACHE = "cache"
+# Real, executable LangChain tools bound into SQLAgent/LLMPlanner alongside the
+# built-in SQL tools, so the LLM can genuinely call them (not just read a text
+# description) -- see cheapquant_fi.cli_tools.
+EXTRA_TOOLS = [get_bond_lc_tool, check_market_context_lc_tool]
 
 
 @dataclass(frozen=True)
 class RoutedQuery:
-    target: DatasetTarget
+    target: str
     text: str
 
 
@@ -59,8 +58,9 @@ HELP_TEXT_CQFI = (
     "=============================\n"
     "\n"
     "Query datasets (prefix optional — auto-routed when obvious):\n"
-    "  input: <question>   — read-only questions about yield curves in ycs_data.duckdb/sqlite\n"
-    "  cache: <question>   — questions about cached QuantLib results\n"
+    "  input: <question>          — read-only questions about yield curves in ycs_data.duckdb/sqlite\n"
+    "  cache: <question>          — questions about cached QuantLib results\n"
+    "  bond_analytics: <question> — bond_universe / bond_analytics / cmt_analytics questions\n"
     "\n"
     "Pricing commands:\n"
     "  price cmt <issuer> <YYYY-MM-DD> [--par]  — price CMTs (USA, DEU, …)\n"
@@ -77,7 +77,8 @@ HELP_TEXT_CQFI = (
     "  /bond <id>  — show bond_universe row as JSON (user_friendly_id or bond_id)\n"
     "    Examples: /bond usa10y001\n"
     "              /bond US0001\n"
-    "    Also available in LLM mode: \"Show bond usa10y001 as JSON\"\n"
+    "    Also available in LLM mode: \"Show bond usa10y001 as JSON\", \"what's the\n"
+    "    duration of fraapr029?\"\n"
     "\n"
     "Session commands:\n"
     "  save [session_id]   — persist active cache to data/sessions/\n"
@@ -92,7 +93,8 @@ HELP_TEXT_CQFI = (
     "Dataset queries:\n"
     "  • With ANTHROPIC_API_KEY set (or --llm / --llm-single-shot), natural\n"
     "    language works:  input: average 10Y zero for Germany in 2017\n"
-    "    market context queries: Is there a market for USA on 2024-02-15?\n"
+    "    Bond lookups and market-context queries are genuine LLM tool calls in\n"
+    "    this mode (not just SQL): \"Is there a market for USA on 2024-02-15?\"\n"
     "  • Without LLM, use rule syntax (same as db-mcp-client):\n"
     "      input: tables\n"
     "      input: schema zero_rates\n"
@@ -144,60 +146,29 @@ def _render(result: Any) -> str:
     return str(result)
 
 
-def _mcp_settings(app: AppSettings, target: DatasetTarget) -> MCPSettings:
-    if target == DatasetTarget.INPUT:
-        return MCPSettings(
-            transport="stdio",
-            db_path=app.ycs_db_path,
-            dataset=app.ycs_dataset,
-            semantics_dir=app.ycs_semantics_dir,
-            server_name="cqfi-input",
-        )
+def mcp_settings_for(app: AppSettings, target: str) -> MCPSettings:
+    """Build MCP connection settings for a registered dataset (see AppSettings.mcp_datasets)."""
+    cfg = app.mcp_datasets[target]
     return MCPSettings(
         transport="stdio",
-        db_path=app.cache_db_path,
-        dataset=app.cache_dataset,
-        semantics_dir=app.cache_semantics_dir,
-        server_name="cqfi-cache",
+        db_path=cfg.db_path,
+        dataset=cfg.dataset,
+        semantics_dir=cfg.semantics_dir,
+        server_name=f"cqfi-{target}",
     )
 
 
-def route_query(text: str) -> RoutedQuery | None:
-    """Parse explicit prefixes or infer dataset from keywords."""
+def route_query(app: AppSettings, text: str) -> RoutedQuery | None:
+    """Parse an explicit `<dataset>:` prefix or infer the dataset from keywords."""
     lowered = text.strip().lower()
-    if lowered.startswith("input:"):
-        return RoutedQuery(DatasetTarget.INPUT, text.split(":", 1)[1].strip())
-    if lowered.startswith("cache:"):
-        return RoutedQuery(DatasetTarget.CACHE, text.split(":", 1)[1].strip())
 
-    cache_hints = (
-        "cmt",
-        "clean price",
-        "cached",
-        "pricing run",
-        "calculation_log",
-        "quantlib",
-        "we computed",
-        "we priced",
-        "session",
-    )
-    if any(h in lowered for h in cache_hints):
-        return RoutedQuery(DatasetTarget.CACHE, text)
+    for name in app.mcp_datasets:
+        if lowered.startswith(f"{name}:"):
+            return RoutedQuery(name, text.split(":", 1)[1].strip())
 
-    input_hints = (
-        "zero rate",
-        "par rate",
-        "spotfx",
-        "window_corr",
-        "correlation",
-        "spread",
-        "slope",
-        "ycs_data",
-        "treasury curve",
-        "yield curve",
-    )
-    if any(h in lowered for h in input_hints):
-        return RoutedQuery(DatasetTarget.INPUT, text)
+    for name, cfg in app.mcp_datasets.items():
+        if any(h in lowered for h in cfg.keywords):
+            return RoutedQuery(name, text)
 
     return None
 
@@ -238,20 +209,53 @@ async def _run_tool_calls(client: DBClient, calls: list[ToolCall]) -> None:
 
 async def _query_dataset(
     app: AppSettings,
-    target: DatasetTarget,
+    target: str,
     text: str,
     *,
     use_agent: bool,
     use_single_shot: bool,
     force_rule: bool,
 ) -> None:
+    # Check for slash commands before routing to planner
+    bond_match = _BOND_RE.match(text.strip())
+    if bond_match:
+        bond_key = bond_match.group("id")
+        try:
+            result = get_bond(bond_key)
+            if result.get("status") == "success":
+                print(result["bond_json"])
+            else:
+                print(f"Error: {result.get('message')}")
+        except Exception as exc:
+            print(f"Bond error: {exc}")
+        return
+
+    mctx_match = _MCTX_RE.match(text.strip())
+    if mctx_match:
+        as_of = mctx_match.group("date").strip()
+        issuer = mctx_match.group("issuer")
+        curve_label = mctx_match.group("curve_label") or "BOND_ZERO"
+        try:
+            result = check_market_context(as_of, issuer, curve_label)
+            if result.get("status") == "success":
+                print(
+                    f"Market context check: {result['message']}\n"
+                    f"  Date: {result['date']}\n"
+                    f"  Issuer: {result['issuer']}\n"
+                    f"  Curve: {result['curve_label']}"
+                )
+            else:
+                print(f"Error: {result.get('message')}")
+        except Exception as exc:
+            print(f"Market context error: {exc}")
+        return
+
     use_agent, use_single_shot = resolve_query_mode(
         use_agent=use_agent,
         use_single_shot=use_single_shot,
         force_rule=force_rule,
     )
-    settings = _mcp_settings(app, target)
-    label = "ycs_data" if target == DatasetTarget.INPUT else "quant_cache"
+    settings = mcp_settings_for(app, target)
     async with DBClient(settings) as client:
         profile_prompt: str | None = None
         if use_agent or use_single_shot:
@@ -261,38 +265,28 @@ async def _query_dataset(
         if use_agent:
             from mcp_data.client.agent import SQLAgent
 
-            # Add market context and bond tools to the profile prompt
-            mctx_tool_def = get_mctx_tool_definition()
-            bond_tool_def = get_bond_tool_definition()
-            enhanced_prompt = (
-                (profile_prompt or "")
-                + f"\n\nAdditional available tool:\n{mctx_tool_def['name']}: {mctx_tool_def['description']}"
-                + f"\n{bond_tool_def['name']}: {bond_tool_def['description']}"
+            agent = SQLAgent(
+                client, profile_prompt=profile_prompt, extra_tools=EXTRA_TOOLS
             )
-
-            agent = SQLAgent(client, profile_prompt=enhanced_prompt)
             result = await agent.run(text)
-            print(f"[{label}]\n{result.answer or '(no answer)'}")
+            print(f"[{target}]\n{result.answer or '(no answer)'}")
             return
 
         if use_single_shot:
-            mctx_tool_def = get_mctx_tool_definition()
-            bond_tool_def = get_bond_tool_definition()
-            enhanced_profile = (
-                (profile_prompt or "")
-                + f"\n\nAdditional available tools:\n"
-                + f"- {mctx_tool_def['name']}: {mctx_tool_def['description']}\n"
-                + f"- {bond_tool_def['name']}: {bond_tool_def['description']}"
+            planner: Planner = LLMPlanner(
+                profile_prompt=profile_prompt, extra_tools=EXTRA_TOOLS
             )
-            planner: Planner = LLMPlanner(profile_prompt=enhanced_profile)
         else:
             planner = CQFIRulePlanner()
 
-        calls = planner.plan(text, await client.list_tools())
+        # Add custom tools to available tools list
+        tools = list(await client.list_tools())
+        tools.extend(["check_market_context", "get_bond"])
+        calls = planner.plan(text, tools)
         if not calls:
-            print(f"[{label}] Could not interpret that.\n{RULE_MODE_HINT}")
+            print(f"[{target}] Could not interpret that.\n{RULE_MODE_HINT}")
             return
-        print(f"[{label}]")
+        print(f"[{target}]")
         await _run_tool_calls(client, calls)
 
 
@@ -411,10 +405,10 @@ async def _interactive(
         if _handle_local_command(query, cache_mgr):
             continue
 
-        routed = route_query(query)
+        routed = route_query(app, query)
         if routed is None:
             print(
-                "Ambiguous query — prefix with input: or cache:, "
+                "Ambiguous query — prefix with input:, cache:, or bond_analytics:, "
                 "or run 'price cmt …' for pricing."
             )
             continue
@@ -439,9 +433,9 @@ async def _amain(args: argparse.Namespace) -> None:
         if args.query:
             if _handle_local_command(args.query, cache_mgr):
                 return
-            routed = route_query(args.query)
+            routed = route_query(app, args.query)
             if routed is None:
-                print("Ambiguous query — prefix with input: or cache:")
+                print("Ambiguous query — prefix with input:, cache:, or bond_analytics:")
                 return
             await _query_dataset(
                 app,

@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Mapping
 
+from mcp_data.backends.duckdb_backend import DuckDBSource
 from mcp_data.backends.sqlite_backend import SQLiteSource
 
 from cheapquant_fi.config import get_settings
@@ -25,7 +26,10 @@ def _fetch_bond_row(
         f"SELECT * FROM bond_universe WHERE user_friendly_id = '{escaped}'",
         f"SELECT * FROM bond_universe WHERE bond_id = '{escaped}'",
     )
-    with SQLiteSource(db_path, read_only=True) as db:
+    db_str = str(db_path).lower()
+    is_duckdb = db_str.endswith(".duckdb")
+    source_class = DuckDBSource if is_duckdb else SQLiteSource
+    with source_class(db_path, read_only=True) as db:
         for sql in queries:
             frame = db.run_query(sql)
             if not frame.is_empty():

@@ -8,34 +8,45 @@ from pathlib import Path
 import QuantLib as ql
 import pytest
 
-from cheapquant_fi.agent.cli import DatasetTarget, route_query
+from cheapquant_fi.agent.cli import route_query
 from cheapquant_fi.config import DEFAULT_CONFIG_PATH, load_settings
 from cheapquant_fi.issuers import ISSUERS, ExDividendConvention
 
 
-def test_route_input_explicit():
-    routed = route_query("input: avg 10Y zero for DEU")
+@pytest.fixture
+def app():
+    return load_settings(DEFAULT_CONFIG_PATH)
+
+
+def test_route_input_explicit(app):
+    routed = route_query(app, "input: avg 10Y zero for DEU")
     assert routed is not None
-    assert routed.target == DatasetTarget.INPUT
+    assert routed.target == "input"
     assert "10Y" in routed.text
 
 
-def test_route_cache_explicit():
-    routed = route_query("cache: latest CMT prices for USA")
+def test_route_cache_explicit(app):
+    routed = route_query(app, "cache: latest CMT prices for USA")
     assert routed is not None
-    assert routed.target == DatasetTarget.CACHE
+    assert routed.target == "cache"
 
 
-def test_route_inferred_zero_rates():
-    routed = route_query("What was the 2s10s slope for Italy?")
+def test_route_inferred_zero_rates(app):
+    routed = route_query(app, "What was the 2s10s slope for Italy?")
     assert routed is not None
-    assert routed.target == DatasetTarget.INPUT
+    assert routed.target == "input"
 
 
-def test_route_inferred_cmt():
-    routed = route_query("Show CMT clean prices we computed")
+def test_route_inferred_cmt(app):
+    routed = route_query(app, "Show CMT clean prices we computed")
     assert routed is not None
-    assert routed.target == DatasetTarget.CACHE
+    assert routed.target == "cache"
+
+
+def test_route_inferred_bond(app):
+    routed = route_query(app, "show me the fraapr029 bond")
+    assert routed is not None
+    assert routed.target == "bond_analytics"
 
 
 def test_gbr_has_ex_dividend_convention():

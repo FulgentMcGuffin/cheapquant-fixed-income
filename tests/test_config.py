@@ -23,6 +23,8 @@ def test_load_default_config():
     assert settings.cache_db_path.name == "active_cache.db"
     assert settings.sessions_dir.name == "sessions"
     assert settings.write_to_bond_analytics_db is True
+    assert set(settings.mcp_datasets) == {"input", "cache", "bond_analytics"}
+    assert settings.mcp_datasets["bond_analytics"].db_path == settings.bond_analytics_db_path
 
 
 def test_load_settings_sets_active_config():
@@ -38,6 +40,7 @@ paths:
   ycs_db: ./input.db
   ycs_semantics: ./sem/input.yaml
   bond_analytics_db: ./bond_analytics.db
+  bond_analytics_semantics: ./sem/bond_analytics.yaml
   cache_db: ./cache.db
   cache_semantics_dir: ./sem
   sessions_dir: ./sessions
@@ -61,6 +64,7 @@ paths:
   ycs_db: ./input.db
   ycs_semantics: ./sem/input.yaml
   bond_analytics_db: ./bond_analytics.db
+  bond_analytics_semantics: ./sem/bond_analytics.yaml
   cache_db: ./cache.db
   cache_semantics_dir: ./sem
   sessions_dir: ./sessions

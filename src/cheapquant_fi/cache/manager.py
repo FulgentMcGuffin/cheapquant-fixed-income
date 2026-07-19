@@ -9,7 +9,8 @@ from datetime import date
 from pathlib import Path
 
 import polars as pl
-from framecache import FrameCache, SQLiteBackend
+from framecache import FrameCache
+from framecache.backends import SQLiteBackend
 from framecache.cache_config import CacheConfig
 
 from cheapquant_fi.cache.registry import CacheRegistry

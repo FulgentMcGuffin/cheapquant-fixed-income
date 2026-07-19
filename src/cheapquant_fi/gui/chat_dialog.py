@@ -34,6 +34,8 @@ from PySide6.QtWidgets import (
 from chat_settings_dialog import ChatSettingsDialog
 from gui_constants import Theme, get_plot_bg, get_theme, window_style
 from gui_settings import load_settings, save_settings
+
+from cheapquant_fi.config import AppSettings as CQFIAppSettings
 from gui_utils import FramelessResizeHelper, PanelFrame, RoundedShell, TitleBar
 from plotnine_wrapper import (
     coerce_date_columns,
@@ -300,18 +302,59 @@ async def fetch_dataframe_for_answer(client, answer: str, messages) -> pl.DataFr
 
 
 class LlmWorker(QObject):
-    """Runs mcp_data LLM agent queries on a background thread."""
+    """Runs mcp_data LLM agent queries on a background thread.
+
+    Routes each query to the correct dataset (input / cache / bond_analytics /
+    ...) the same way the CLI does, and intercepts literal ``/bond`` and
+    ``/mctx`` slash commands before any LLM/MCP round trip -- mirroring
+    ``cheapquant_fi.agent.cli``'s ``_handle_local_command`` /
+    ``_query_dataset`` behavior so the GUI and CLI stay in parity.
+    """
 
     query_requested = Signal(str)
     finished = Signal(str, object)
     error = Signal(str)
 
-    def __init__(self) -> None:
+    def __init__(self, app_settings) -> None:
         super().__init__()
+        self._app_settings = app_settings
         self.query_requested.connect(self.run_query)
 
     @Slot(str)
     def run_query(self, query: str) -> None:
+        from cheapquant_fi.agent.cli import _BOND_RE, _MCTX_RE
+        from cheapquant_fi.cli_tools import check_market_context, get_bond
+
+        text = query.strip()
+
+        bond_match = _BOND_RE.match(text)
+        if bond_match:
+            try:
+                result = get_bond(bond_match.group("id"))
+                answer = (
+                    result["bond_json"]
+                    if result.get("status") == "success"
+                    else result.get("message", "Bond not found.")
+                )
+            except Exception as exc:
+                answer = f"Bond error: {exc}"
+            self.finished.emit(answer, None)
+            return
+
+        mctx_match = _MCTX_RE.match(text)
+        if mctx_match:
+            try:
+                result = check_market_context(
+                    mctx_match.group("date").strip(),
+                    mctx_match.group("issuer"),
+                    mctx_match.group("curve_label") or "BOND_ZERO",
+                )
+                answer = result.get("message", str(result))
+            except Exception as exc:
+                answer = f"Market context error: {exc}"
+            self.finished.emit(answer, None)
+            return
+
         from mcp_data.client._tracing import disable_langsmith_tracing
 
         disable_langsmith_tracing(force=True)
@@ -326,14 +369,27 @@ class LlmWorker(QObject):
             loop.close()
 
     async def _execute(self, query: str) -> tuple[str, pl.DataFrame | None]:
+        from cheapquant_fi.agent.cli import EXTRA_TOOLS, mcp_settings_for, route_query
         from mcp_data.client.agent import SQLAgent
         from mcp_data.client.session import DBClient
 
-        async with DBClient() as client:
+        routed = route_query(self._app_settings, query)
+        if routed is None:
+            return (
+                "Ambiguous query — try prefixing with `input:`, `cache:`, or "
+                "`bond_analytics:`, or mention curves/pricing/bonds more "
+                "specifically.",
+                None,
+            )
+
+        settings = mcp_settings_for(self._app_settings, routed.target)
+        async with DBClient(settings) as client:
             profile = await client.describe_dataset()
             profile_prompt = profile.get("prompt") if isinstance(profile, dict) else None
-            agent = SQLAgent(client, profile_prompt=profile_prompt)
-            result = await agent.run(query)
+            agent = SQLAgent(
+                client, profile_prompt=profile_prompt, extra_tools=EXTRA_TOOLS
+            )
+            result = await agent.run(routed.text)
             answer = result.answer or "(no answer)"
             dataframe = await fetch_dataframe_for_answer(
                 client, answer, result.messages
@@ -344,9 +400,10 @@ class LlmWorker(QObject):
 class ChatDialog(QMainWindow):
     """Interactive LLM chat with data table and plot output."""
 
-    def __init__(self, parent=None):
+    def __init__(self, app_settings: CQFIAppSettings, parent=None):
         super().__init__(parent)
 
+        self._app_settings = app_settings
         self._settings = load_settings()
         self._theme = get_theme(self._settings.get("ui_theme"))
         self._last_dataframe: pl.DataFrame | None = None
@@ -497,7 +554,7 @@ class ChatDialog(QMainWindow):
         )
 
         self._worker_thread = QThread(self)
-        self._llm_worker = LlmWorker()
+        self._llm_worker = LlmWorker(self._app_settings)
         self._llm_worker.moveToThread(self._worker_thread)
         self._llm_worker.finished.connect(self._on_llm_response)
         self._llm_worker.error.connect(self._on_llm_error)
@@ -853,11 +910,16 @@ class ChatDialog(QMainWindow):
 def main() -> None:
     from PySide6.QtGui import QFont
 
+    from cheapquant_fi.config import load_settings as load_cqfi_settings
+
+    cqfi_settings = load_cqfi_settings()
+    cqfi_settings.ensure_dirs()
+
     app = QApplication(sys.argv)
     font = QFont("Segoe UI", 10)
     font.setStyleStrategy(QFont.StyleStrategy.PreferAntialias)
     app.setFont(font)
-    window = ChatDialog()
+    window = ChatDialog(app_settings=cqfi_settings)
     window.show()
     sys.exit(app.exec())
 

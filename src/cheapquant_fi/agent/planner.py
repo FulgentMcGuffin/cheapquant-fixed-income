@@ -17,6 +17,13 @@ _DESCRIBE_RE = re.compile(
     re.IGNORECASE,
 )
 
+_BOND_CMD_RE = re.compile(r"^/bond\s+(?P<id>\S+)$", re.IGNORECASE)
+_MCTX_CMD_RE = re.compile(
+    r"^/mctx\s+(?P<date>\d{4}-\d{2}-\d{2}(?:\s+\d{2}:\d{2}:\d{2})?)"
+    r"(?:\s+(?P<issuer>\S+))?(?:\s+(?P<curve_label>\S+))?$",
+    re.IGNORECASE,
+)
+
 
 class CQFIRulePlanner(RuleBasedPlanner):
     """Rule-based planner with a few extra phrases for dataset introspection."""
@@ -49,6 +56,28 @@ class CQFIRulePlanner(RuleBasedPlanner):
             table = text.split(None, 1)[1].strip()
             if table and "get_schema" in available_tools:
                 return [ToolCall("get_schema", {"table": table})]
+
+        # Handle /bond command syntax
+        bond_match = _BOND_CMD_RE.match(text)
+        if bond_match and "get_bond" in available_tools:
+            return [ToolCall("get_bond", {"bond_id": bond_match.group("id")})]
+
+        # Handle /mctx command syntax
+        mctx_match = _MCTX_CMD_RE.match(text)
+        if mctx_match and "check_market_context" in available_tools:
+            date_str = mctx_match.group("date").strip()
+            issuer = mctx_match.group("issuer")
+            curve_label = mctx_match.group("curve_label") or "BOND_ZERO"
+            return [
+                ToolCall(
+                    "check_market_context",
+                    {
+                        "as_of": date_str,
+                        "issuer": issuer,
+                        "curve_label": curve_label,
+                    },
+                )
+            ]
 
         return []
 

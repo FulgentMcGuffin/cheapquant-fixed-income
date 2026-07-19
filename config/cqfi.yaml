@@ -5,7 +5,16 @@
 # Or set CQFI_CONFIG in the environment.
 #
 # Per-path env overrides (optional, in .env): CQFI_YCS_DB, CQFI_YCS_SEMANTICS,
-# CQFI_BOND_ANALYTICS_DB, CQFI_CACHE_DB, CQFI_CACHE_SEMANTICS, CQFI_SESSIONS_DIR
+# CQFI_BOND_ANALYTICS_DB, CQFI_BOND_ANALYTICS_SEMANTICS, CQFI_CACHE_DB,
+# CQFI_CACHE_SEMANTICS, CQFI_SESSIONS_DIR
+#
+# Additional MCP-queryable datasets can be registered without any code changes
+# via an optional top-level `datasets:` mapping, e.g.:
+#   datasets:
+#     my_extra_dataset:
+#       db: D:/data/duckdb/something.duckdb
+#       semantics: ./semantics/something.yaml
+#       keywords: [foo, bar]   # optional natural-language routing hints
 
 paths:
   # Alternatives (uncomment one pair):
@@ -14,6 +23,7 @@ paths:
   ycs_db: D:/data/duckdb/ycs_data.duckdb
   ycs_semantics: ./semantics/ycs_data.yaml
   bond_analytics_db: D:/data/duckdb/bond_analytics.duckdb
+  bond_analytics_semantics: ./semantics/bond_analytics.yaml
   cache_db: ./data/cache/active_cache.db
   cache_semantics_dir: ./semantics
   sessions_dir: ./data/sessions

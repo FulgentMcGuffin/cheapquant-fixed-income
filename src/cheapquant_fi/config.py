@@ -60,6 +60,37 @@ def _parse_bool(value: object) -> bool:
 
 
 @dataclass(frozen=True)
+class DatasetConfig:
+    """A single MCP-queryable dataset: a database plus its semantic profile.
+
+    Registering a new dataset for the LLM to query is purely a config change —
+    add an entry (built-in path keys, or a ``datasets:`` block in
+    ``cqfi.yaml``) and it becomes routable/queryable with no code changes.
+    """
+
+    db_path: Path
+    semantics_dir: Path
+    dataset: str
+    keywords: tuple[str, ...] = ()
+
+
+# Default natural-language routing hints for the three built-in datasets.
+_INPUT_KEYWORDS = (
+    "zero rate", "par rate", "spotfx", "window_corr", "correlation", "spread",
+    "slope", "ycs_data", "treasury curve", "yield curve",
+)
+_CACHE_KEYWORDS = (
+    "cmt", "clean price", "cached", "pricing run", "calculation_log",
+    "quantlib", "we computed", "we priced", "session",
+)
+_BOND_ANALYTICS_KEYWORDS = (
+    "bond", "duration", "convexity", "z-spread", "asw", "carry", "roll",
+    "tenor pillar", "bond_universe", "bond_analytics", "cmt_analytics",
+    "isin", "market", "/mctx", "/bond",
+)
+
+
+@dataclass(frozen=True)
 class AppSettings:
     """Resolved runtime paths and dataset names."""
 
@@ -67,9 +98,11 @@ class AppSettings:
     ycs_db_path: Path
     ycs_semantics_dir: Path
     bond_analytics_db_path: Path
+    bond_analytics_semantics_dir: Path
     cache_db_path: Path
     cache_semantics_dir: Path
     sessions_dir: Path
+    mcp_datasets: dict[str, DatasetConfig]
     write_to_bond_analytics_db: bool = False
 
     @property
@@ -79,6 +112,10 @@ class AppSettings:
     @property
     def cache_dataset(self) -> str:
         return "quant_cache"
+
+    @property
+    def bond_analytics_dataset(self) -> str:
+        return self.bond_analytics_db_path.stem
 
     @classmethod
     def from_yaml(cls, path: str | Path) -> "AppSettings":
@@ -114,6 +151,9 @@ class AppSettings:
         ycs_db = _get("ycs_db", "CQFI_YCS_DB")
         ycs_semantics = _get("ycs_semantics", "CQFI_YCS_SEMANTICS")
         bond_analytics_db = _get("bond_analytics_db", "CQFI_BOND_ANALYTICS_DB")
+        bond_analytics_semantics = _get(
+            "bond_analytics_semantics", "CQFI_BOND_ANALYTICS_SEMANTICS"
+        )
         cache_db = _get("cache_db", "CQFI_CACHE_DB")
         cache_semantics = _get("cache_semantics_dir", "CQFI_CACHE_SEMANTICS")
         sessions = _get("sessions_dir", "CQFI_SESSIONS_DIR")
@@ -127,6 +167,7 @@ class AppSettings:
                 ("ycs_db", ycs_db),
                 ("ycs_semantics", ycs_semantics),
                 ("bond_analytics_db", bond_analytics_db),
+                ("bond_analytics_semantics", bond_analytics_semantics),
                 ("cache_db", cache_db),
                 ("cache_semantics_dir", cache_semantics),
                 ("sessions_dir", sessions),
@@ -138,14 +179,59 @@ class AppSettings:
                 f"Config {config_path} is missing required path(s): {', '.join(missing)}"
             )
 
+        ycs_db_path = _resolve_path(ycs_db)
+        bond_analytics_db_path = _resolve_path(bond_analytics_db)
+        cache_db_path = _resolve_path(cache_db)
+        cache_semantics_dir = _resolve_path(cache_semantics)
+        bond_analytics_semantics_dir = _semantics_dir_from_value(bond_analytics_semantics)
+
+        mcp_datasets: dict[str, DatasetConfig] = {
+            "input": DatasetConfig(
+                db_path=ycs_db_path,
+                semantics_dir=_semantics_dir_from_value(ycs_semantics),
+                dataset=ycs_db_path.stem,
+                keywords=_INPUT_KEYWORDS,
+            ),
+            "cache": DatasetConfig(
+                db_path=cache_db_path,
+                semantics_dir=cache_semantics_dir,
+                dataset="quant_cache",
+                keywords=_CACHE_KEYWORDS,
+            ),
+            "bond_analytics": DatasetConfig(
+                db_path=bond_analytics_db_path,
+                semantics_dir=bond_analytics_semantics_dir,
+                dataset=bond_analytics_db_path.stem,
+                keywords=_BOND_ANALYTICS_KEYWORDS,
+            ),
+        }
+
+        extra_datasets = data.get("datasets") or {}
+        if not isinstance(extra_datasets, dict):
+            raise ValueError(f"Config {config_path} 'datasets' must be a mapping.")
+        for name, entry in extra_datasets.items():
+            if not isinstance(entry, dict) or not entry.get("db") or not entry.get("semantics"):
+                raise ValueError(
+                    f"Config {config_path} dataset {name!r} needs 'db' and 'semantics'."
+                )
+            db_path = _resolve_path(entry["db"])
+            mcp_datasets[name] = DatasetConfig(
+                db_path=db_path,
+                semantics_dir=_semantics_dir_from_value(entry["semantics"]),
+                dataset=db_path.stem,
+                keywords=tuple(entry.get("keywords", ())),
+            )
+
         return cls(
             config_path=config_path,
-            ycs_db_path=_resolve_path(ycs_db),
+            ycs_db_path=ycs_db_path,
             ycs_semantics_dir=_semantics_dir_from_value(ycs_semantics),
-            bond_analytics_db_path=_resolve_path(bond_analytics_db),
-            cache_db_path=_resolve_path(cache_db),
-            cache_semantics_dir=_resolve_path(cache_semantics),
+            bond_analytics_db_path=bond_analytics_db_path,
+            bond_analytics_semantics_dir=bond_analytics_semantics_dir,
+            cache_db_path=cache_db_path,
+            cache_semantics_dir=cache_semantics_dir,
             sessions_dir=_resolve_path(sessions),
+            mcp_datasets=mcp_datasets,
             write_to_bond_analytics_db=write_to_bond_analytics_db,
         )
 

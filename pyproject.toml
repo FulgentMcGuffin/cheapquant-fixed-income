@@ -36,7 +36,7 @@ packages = ["src/cheapquant_fi"]
 
 [tool.uv.sources]
 framecache = { git = "https://github.com/FulgentMcGuffin/framecache.git" }
-mcp-data = { git = "https://github.com/FulgentMcGuffin/mcp_data.git" }
+mcp-data = { path = "../mcp_data", editable = true }
 decorules = { git = "https://github.com/FulgentMcGuffin/decorules.git" }
 
 [tool.uv]
