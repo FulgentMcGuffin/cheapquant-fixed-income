@@ -1,9 +1,11 @@
-"""CLI tools for QuantLib market context management."""
+"""CLI tools for QuantLib market context and bond lookup."""
 
 from __future__ import annotations
 
+import json
 from datetime import date, datetime
 
+from cheapquant_fi.bond_manager import BondManager
 from cheapquant_fi.quantlib.quantlib_market_context_manager import (
     QuantlibMarketContextManager,
 )
@@ -66,6 +68,48 @@ def check_market_context(
         }
 
 
+def get_bond(bond_id: str) -> dict:
+    """Load a :class:`Bond` by ``user_friendly_id`` or ``bond_id``.
+
+    Args:
+        bond_id: Identifier matching a row in ``bond_universe``.
+
+    Returns:
+        Dictionary with status and bond JSON when found.
+    """
+    try:
+        key = bond_id.strip()
+        if not key:
+            return {
+                "status": "error",
+                "message": "Bond id is required",
+            }
+
+        bond = BondManager.instance().get(key)
+        if bond is None:
+            return {
+                "status": "not_found",
+                "id": key,
+                "message": f"No bond found for id {key!r}",
+            }
+
+        return {
+            "status": "success",
+            "id": key,
+            "bond_id": bond.bond_id,
+            "user_friendly_id": bond.user_friendly_id,
+            "bond_json": bond.as_json(indent=2),
+            "bond": json.loads(bond.as_json()),
+            "message": f"Bond loaded for id {key!r}",
+        }
+    except Exception as exc:
+        return {
+            "status": "error",
+            "error": str(exc),
+            "message": f"Failed to load bond: {exc}",
+        }
+
+
 def get_mctx_tool_definition() -> dict:
     """Return JSON schema for the market context tool for LLM use."""
     return {
@@ -99,5 +143,30 @@ def get_mctx_tool_definition() -> dict:
                 },
             },
             "required": ["as_of"],
+        },
+    }
+
+
+def get_bond_tool_definition() -> dict:
+    """Return JSON schema for the bond lookup tool for LLM use."""
+    return {
+        "name": "get_bond",
+        "description": (
+            "Load a bond from bond_universe by user_friendly_id or bond_id and "
+            "return its fields as JSON. Creates a cached Bond instance when found."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "bond_id": {
+                    "type": "string",
+                    "description": (
+                        "Bond identifier: user_friendly_id (e.g. usa10y001) or "
+                        "bond_id / ISIN (e.g. US0001)."
+                    ),
+                    "examples": ["usa10y001", "US0001", "deu10y001"],
+                },
+            },
+            "required": ["bond_id"],
         },
     }

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, fields
 from datetime import date
 from typing import Any, Mapping
@@ -176,6 +177,10 @@ class Bond:
             "issue_amount": self.issue_amount,
             "is_green": self.is_green,
         }
+
+    def as_json(self, **kwargs) -> str:
+        """Return bond_universe column values as a JSON object string."""
+        return json.dumps(self.as_dict(), **kwargs)
 
     def field_names(self) -> tuple[str, ...]:
         """Return dataclass field names in declaration order."""

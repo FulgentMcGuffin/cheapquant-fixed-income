@@ -35,7 +35,12 @@ from cheapquant_fi.agent.planner import (
     resolve_query_mode,
 )
 from cheapquant_fi.cache.manager import CacheManager
-from cheapquant_fi.cli_tools import check_market_context, get_mctx_tool_definition
+from cheapquant_fi.cli_tools import (
+    check_market_context,
+    get_bond,
+    get_bond_tool_definition,
+    get_mctx_tool_definition,
+)
 
 
 class DatasetTarget(str, Enum):
@@ -67,6 +72,12 @@ HELP_TEXT_CQFI = (
     "              /mctx 2024-02-15 USA\n"
     "              /mctx 2025-11-18\n"
     "    Also available in LLM mode: \"Is there a market for France on 17 Feb 2022?\"\n"
+    "\n"
+    "Bond commands:\n"
+    "  /bond <id>  — show bond_universe row as JSON (user_friendly_id or bond_id)\n"
+    "    Examples: /bond usa10y001\n"
+    "              /bond US0001\n"
+    "    Also available in LLM mode: \"Show bond usa10y001 as JSON\"\n"
     "\n"
     "Session commands:\n"
     "  save [session_id]   — persist active cache to data/sessions/\n"
@@ -101,6 +112,8 @@ _MCTX_RE = re.compile(
     re.IGNORECASE,
 )
 
+_BOND_RE = re.compile(r"^/bond\s+(?P<id>\S+)$", re.IGNORECASE)
+
 
 def _ensure_utf8_stdout() -> None:
     for stream in (sys.stdout, sys.stderr):
@@ -113,6 +126,8 @@ def _ensure_utf8_stdout() -> None:
 
 
 def _render(result: Any) -> str:
+    if isinstance(result, dict) and result.get("bond_json"):
+        return result["bond_json"]
     if isinstance(result, dict) and "error" in result:
         return f"Error: {result['error']}"
     if isinstance(result, dict) and "rows" in result:
@@ -203,6 +218,17 @@ async def _run_tool_calls(client: DBClient, calls: list[ToolCall]) -> None:
                 print(f"Tool error: {exc}")
             continue
 
+        if call.name == "get_bond":
+            try:
+                result = get_bond(call.arguments.get("bond_id", ""))
+                if result.get("status") == "success":
+                    print(result["bond_json"])
+                else:
+                    print(_render(result))
+            except Exception as exc:
+                print(f"Tool error: {exc}")
+            continue
+
         if call.name not in tools:
             print(f"Tool {call.name!r} not available (have: {tools})")
             continue
@@ -235,11 +261,13 @@ async def _query_dataset(
         if use_agent:
             from mcp_data.client.agent import SQLAgent
 
-            # Add market context tool to the profile prompt
+            # Add market context and bond tools to the profile prompt
             mctx_tool_def = get_mctx_tool_definition()
+            bond_tool_def = get_bond_tool_definition()
             enhanced_prompt = (
                 (profile_prompt or "")
                 + f"\n\nAdditional available tool:\n{mctx_tool_def['name']}: {mctx_tool_def['description']}"
+                + f"\n{bond_tool_def['name']}: {bond_tool_def['description']}"
             )
 
             agent = SQLAgent(client, profile_prompt=enhanced_prompt)
@@ -248,7 +276,15 @@ async def _query_dataset(
             return
 
         if use_single_shot:
-            planner: Planner = LLMPlanner(profile_prompt=profile_prompt)
+            mctx_tool_def = get_mctx_tool_definition()
+            bond_tool_def = get_bond_tool_definition()
+            enhanced_profile = (
+                (profile_prompt or "")
+                + f"\n\nAdditional available tools:\n"
+                + f"- {mctx_tool_def['name']}: {mctx_tool_def['description']}\n"
+                + f"- {bond_tool_def['name']}: {bond_tool_def['description']}"
+            )
+            planner: Planner = LLMPlanner(profile_prompt=enhanced_profile)
         else:
             planner = CQFIRulePlanner()
 
@@ -331,6 +367,19 @@ def _handle_local_command(
                 print(f"Error: {result.get('message')}")
         except Exception as exc:
             print(f"Market context error: {exc}")
+        return True
+
+    match = _BOND_RE.match(text.strip())
+    if match:
+        bond_key = match.group("id")
+        try:
+            result = get_bond(bond_key)
+            if result.get("status") == "success":
+                print(result["bond_json"])
+            else:
+                print(f"Error: {result.get('message')}")
+        except Exception as exc:
+            print(f"Bond error: {exc}")
         return True
 
     return False
