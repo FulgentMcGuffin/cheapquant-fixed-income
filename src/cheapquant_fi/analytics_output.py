@@ -73,27 +73,38 @@ class FixedIncomeAnalyticsOutput:
     carry_3m: float | None = None
     carry_6m: float | None = None
     carry_1y: float | None = None
-    roll_1m: float | None = None
-    roll_3m: float | None = None
-    roll_6m: float | None = None
-    roll_1y: float | None = None
-    carry_roll_1m: float | None = None
-    carry_roll_3m: float | None = None
-    carry_roll_6m: float | None = None
-    carry_roll_1y: float | None = None
+    roll_1m_spotyield: float | None = None
+    roll_3m_spotyield: float | None = None
+    roll_6m_spotyield: float | None = None
+    roll_1y_spotyield: float | None = None
+    roll_1m_fwdyield: float | None = None
+    roll_3m_fwdyield: float | None = None
+    roll_6m_fwdyield: float | None = None
+    roll_1y_fwdyield: float | None = None
+    carry_roll_1m_spotyield: float | None = None
+    carry_roll_3m_spotyield: float | None = None
+    carry_roll_6m_spotyield: float | None = None
+    carry_roll_1y_spotyield: float | None = None
+    carry_roll_1m_fwdyield: float | None = None
+    carry_roll_3m_fwdyield: float | None = None
+    carry_roll_6m_fwdyield: float | None = None
+    carry_roll_1y_fwdyield: float | None = None
     asw_spread_1m: float | None = None
     asw_spread_3m: float | None = None
     asw_spread_6m: float | None = None
     asw_spread_1y: float | None = None
 
-    def as_dict(self) -> dict[str, float]:
+    def as_dict(self, only_populated: bool = True) -> dict[str, float]:
         """Return populated metrics only (non-``None`` values)."""
-        return {
-            field.name: value
-            for field in fields(self)
-            if (value := getattr(self, field.name)) is not None
-        }
+        if only_populated:
+            return {
+                field.name: value
+                for field in fields(self)
+                if (value := getattr(self, field.name)) is not None
+            }
+        else:
+            return {field.name: getattr(self, field.name) for field in fields(self)}
 
-    def as_json(self, **kwargs) -> str:
+    def as_json(self, only_populated: bool = True, **kwargs) -> str:
         """Return populated metrics as a JSON object string."""
-        return json.dumps(self.as_dict(), **kwargs)
+        return json.dumps(self.as_dict(only_populated), **kwargs)

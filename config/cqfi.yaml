@@ -19,9 +19,9 @@
 paths:
   # Alternatives (uncomment one pair):
   # ycs_db: D:/data/sqlite/ycs_data.sqlite
-  # bond_analytics_db: D:/data/sqlite/bond_analytics.sqlite
   ycs_db: D:/data/duckdb/ycs_data.duckdb
   ycs_semantics: ./semantics/ycs_data.yaml
+  # bond_analytics_db: D:/data/sqlite/bond_analytics.sqlite
   bond_analytics_db: D:/data/duckdb/bond_analytics.duckdb
   bond_analytics_semantics: ./semantics/bond_analytics.yaml
   cache_db: ./data/cache/active_cache.db

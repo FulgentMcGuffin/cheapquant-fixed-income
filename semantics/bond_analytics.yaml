@@ -167,14 +167,22 @@ tables:
       carry_3m: {type: REAL, description: "Carry of the bond as a percentage of face value for 3 months."}
       carry_6m: {type: REAL, description: "Carry of the bond as a percentage of face value for 6 months."}
       carry_1y: {type: REAL, description: "Carry of the bond as a percentage of face value for 1 year."}
-      roll_1m: {type: REAL, description: "Roll of the bond as a percentage of face value for 1 month."}
-      roll_3m: {type: REAL, description: "Roll of the bond as a percentage of face value for 3 months."}
-      roll_6m: {type: REAL, description: "Roll of the bond as a percentage of face value for 6 months."}
-      roll_1y: {type: REAL, description: "Roll of the bond as a percentage of face value for 1 year."}
-      carry_roll_1m: {type: REAL, description: "Carry roll of the bond as a percentage of face value for 1 month."}
-      carry_roll_3m: {type: REAL, description: "Carry roll of the bond as a percentage of face value for 3 months."}
-      carry_roll_6m: {type: REAL, description: "Carry roll of the bond as a percentage of face value for 6 months."}
-      carry_roll_1y: {type: REAL, description: "Carry roll of the bond as a percentage of face value for 1 year."}
+      roll_1m_spotyield: {type: REAL, description: "Roll of the bond as a percentage of face value for 1 month by comparing the spot yield to maturity of the bond with the yield to maturity of the bond if it matured 1 month earlier."}
+      roll_3m_spotyield: {type: REAL, description: "Roll of the bond as a percentage of face value for 3 months by comparing the spot yield to maturity of the bond with the yield to maturity of the bond if it matured 3 months earlier."}
+      roll_6m_spotyield: {type: REAL, description: "Roll of the bond as a percentage of face value for 6 months by comparing the spot yield to maturity of the bond with the yield to maturity of the bond if it matured 6 months earlier."}
+      roll_1y_spotyield: {type: REAL, description: "Roll of the bond as a percentage of face value for 1 year by comparing the spot yield to maturity of the bond with the yield to maturity of the bond if it matured 1 year earlier."}
+      roll_1m_fwdyield: {type: REAL, description: "Roll of the bond as a percentage of face value for 1 month by comparing the spot yield to maturity of the bond with the forward yield to maturity of the bond 1 month in the future"}
+      roll_3m_fwdyield: {type: REAL, description: "Roll of the bond as a percentage of face value for 3 months by comparing the spot yield to maturity of the bond with the forward yield to maturity of the bond 3 months in the future"}
+      roll_6m_fwdyield: {type: REAL, description: "Roll of the bond as a percentage of face value for 6 months by comparing the spot yield to maturity of the bond with the forward yield to maturity of the bond 6 months in the future"}
+      roll_1y_fwdyield: {type: REAL, description: "Roll of the bond as a percentage of face value for 1 year by comparing the spot yield to maturity of the bond with the forward yield to maturity of the bond 1 year in the future"}
+      carry_roll_1m_spotyield: {type: REAL, description: "Carry roll of the bond as a percentage of face value for 1 month by comparing the spot yield to maturity of the bond with the yield to maturity of the bond if it matured 1 month earlier."}
+      carry_roll_3m_spotyield: {type: REAL, description: "Carry roll of the bond as a percentage of face value for 3 months by comparing the spot yield to maturity of the bond with the yield to maturity of the bond if it matured 3 months earlier."}
+      carry_roll_6m_spotyield: {type: REAL, description: "Carry roll of the bond as a percentage of face value for 6 months by comparing the spot yield to maturity of the bond with the yield to maturity of the bond if it matured 6 months earlier."}
+      carry_roll_1y_spotyield: {type: REAL, description: "Carry roll of the bond as a percentage of face value for 1 year by comparing the spot yield to maturity of the bond with the yield to maturity of the bond if it matured 1 year earlier."}
+      carry_roll_1m_fwdyield: {type: REAL, description: "Carry roll of the bond as a percentage of face value for 1 month by comparing the spot yield to maturity of the bond with the forward yield to maturity of the bond 1 month in the future"}
+      carry_roll_3m_fwdyield: {type: REAL, description: "Carry roll of the bond as a percentage of face value for 3 months by comparing the spot yield to maturity of the bond with the forward yield to maturity of the bond 3 months in the future"}
+      carry_roll_6m_fwdyield: {type: REAL, description: "Carry roll of the bond as a percentage of face value for 6 months by comparing the spot yield to maturity of the bond with the forward yield to maturity of the bond 6 months in the future"}
+      carry_roll_1y_fwdyield: {type: REAL, description: "Carry roll of the bond as a percentage of face value for 1 year by comparing the spot yield to maturity of the bond with the forward yield to maturity of the bond 1 year in the future"}
       asw_spread_1m: {type: REAL, description: "ASW spread of the bond as a percentage of face value for 1 month."}
       asw_spread_3m: {type: REAL, description: "ASW spread of the bond as a percentage of face value for 3 months."}
       asw_spread_6m: {type: REAL, description: "ASW spread of the bond as a percentage of face value for 6 months."}
@@ -201,22 +209,6 @@ cmt_analytics:
       convexity: {type: REAL, description: "Convexity of the CMT as a percentage."}
       dv01_sensitivity: {type: REAL, description: "Duration sensitivity of the CMT as a percentage of face value (DV01)."}
       gamma_sensitivity: {type: REAL, description: "Dollar convexity sensitivity of the CMT as a percentage of face value."}
-      repo_rate_1m: {type: REAL, description: "Repo rate of the CMT as a percentage using in the carry calculation for 1 month."}
-      repo_rate_3m: {type: REAL, description: "Repo rate of the CMT as a percentage using in the carry calculation for 3 months."}
-      repo_rate_6m: {type: REAL, description: "Repo rate of the CMT as a percentage using in the carry calculation for 6 months."}
-      repo_rate_1y: {type: REAL, description: "Repo rate of the CMT as a percentage using in the carry calculation for 1 year."}
-      carry_1m: {type: REAL, description: "Carry of the CMT as a percentage of face value for 1 month."}
-      carry_3m: {type: REAL, description: "Carry of the CMT as a percentage of face value for 3 months."}
-      carry_6m: {type: REAL, description: "Carry of the CMT as a percentage of face value for 6 months."}
-      carry_1y: {type: REAL, description: "Carry of the CMT as a percentage of face value for 1 year."}
-      roll_1m: {type: REAL, description: "Roll of the CMT as a percentage of face value for 1 month."}
-      roll_3m: {type: REAL, description: "Roll of the CMT as a percentage of face value for 3 months."}
-      roll_6m: {type: REAL, description: "Roll of the CMT as a percentage of face value for 6 months."}
-      roll_1y: {type: REAL, description: "Roll of the CMT as a percentage of face value for 1 year."}
-      carry_roll_1m: {type: REAL, description: "Carry roll of the CMT as a percentage of face value for 1 month."}
-      carry_roll_3m: {type: REAL, description: "Carry roll of the CMT as a percentage of face value for 3 months."}
-      carry_roll_6m: {type: REAL, description: "Carry roll of the CMT as a percentage of face value for 6 months."}
-      carry_roll_1y: {type: REAL, description: "Carry roll of the CMT as a percentage of face value for 1 year."}
       asw_spread_1m: {type: REAL, description: "ASW spread of the CMT as a percentage of face value for 1 month."}
       asw_spread_3m: {type: REAL, description: "ASW spread of the CMT as a percentage of face value for 3 months."}
       asw_spread_6m: {type: REAL, description: "ASW spread of the CMT as a percentage of face value for 6 months."}
