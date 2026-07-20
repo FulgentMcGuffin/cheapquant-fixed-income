@@ -39,6 +39,7 @@ from cheapquant_fi.cli_tools import (
     check_market_context_lc_tool,
     get_bond,
     get_bond_lc_tool,
+    resolve_bond_mentions,
 )
 
 # Real, executable LangChain tools bound into SQLAgent/LLMPlanner alongside the
@@ -114,7 +115,8 @@ _MCTX_RE = re.compile(
     re.IGNORECASE,
 )
 
-_BOND_RE = re.compile(r"^/bond\s+(?P<id>\S+)$", re.IGNORECASE)
+_BOND_RE = re.compile(r"^/bond\s+@?(?P<id>\S+)$", re.IGNORECASE)
+_BARE_MENTION_RE = re.compile(r"^@(?P<id>\S+)$")
 
 
 def _ensure_utf8_stdout() -> None:
@@ -363,6 +365,20 @@ def _handle_local_command(
             print(f"Market context error: {exc}")
         return True
 
+    # Check for bare mention shortcut: @id
+    bare_match = _BARE_MENTION_RE.match(text.strip())
+    if bare_match:
+        bond_key = bare_match.group("id")
+        try:
+            result = get_bond(bond_key)
+            if result.get("status") == "success":
+                print(result["bond_json"])
+            else:
+                print(f"Error: {result.get('message')}")
+        except Exception as exc:
+            print(f"Bond error: {exc}")
+        return True
+
     match = _BOND_RE.match(text.strip())
     if match:
         bond_key = match.group("id")
@@ -405,7 +421,11 @@ async def _interactive(
         if _handle_local_command(query, cache_mgr):
             continue
 
-        routed = route_query(app, query)
+        rewritten, unresolved = resolve_bond_mentions(query)
+        if unresolved:
+            print(f"Warning: could not resolve bond mentions: {', '.join(f'@{id}' for id in unresolved)}")
+
+        routed = route_query(app, rewritten)
         if routed is None:
             print(
                 "Ambiguous query — prefix with input:, cache:, or bond_analytics:, "
@@ -433,7 +453,10 @@ async def _amain(args: argparse.Namespace) -> None:
         if args.query:
             if _handle_local_command(args.query, cache_mgr):
                 return
-            routed = route_query(app, args.query)
+            rewritten, unresolved = resolve_bond_mentions(args.query)
+            if unresolved:
+                print(f"Warning: could not resolve bond mentions: {', '.join(f'@{id}' for id in unresolved)}")
+            routed = route_query(app, rewritten)
             if routed is None:
                 print("Ambiguous query — prefix with input:, cache:, or bond_analytics:")
                 return

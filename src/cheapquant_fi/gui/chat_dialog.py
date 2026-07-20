@@ -322,10 +322,25 @@ class LlmWorker(QObject):
 
     @Slot(str)
     def run_query(self, query: str) -> None:
-        from cheapquant_fi.agent.cli import _BOND_RE, _MCTX_RE
+        from cheapquant_fi.agent.cli import _BARE_MENTION_RE, _BOND_RE, _MCTX_RE
         from cheapquant_fi.cli_tools import check_market_context, get_bond
 
         text = query.strip()
+
+        # Check for bare mention shortcut: @id
+        bare_match = _BARE_MENTION_RE.match(text)
+        if bare_match:
+            try:
+                result = get_bond(bare_match.group("id"))
+                answer = (
+                    result["bond_json"]
+                    if result.get("status") == "success"
+                    else result.get("message", "Bond not found.")
+                )
+            except Exception as exc:
+                answer = f"Bond error: {exc}"
+            self.finished.emit(answer, None)
+            return
 
         bond_match = _BOND_RE.match(text)
         if bond_match:
@@ -370,10 +385,15 @@ class LlmWorker(QObject):
 
     async def _execute(self, query: str) -> tuple[str, pl.DataFrame | None]:
         from cheapquant_fi.agent.cli import EXTRA_TOOLS, mcp_settings_for, route_query
+        from cheapquant_fi.cli_tools import resolve_bond_mentions
         from mcp_data.client.agent import SQLAgent
         from mcp_data.client.session import DBClient
 
-        routed = route_query(self._app_settings, query)
+        rewritten, unresolved = resolve_bond_mentions(query)
+        if unresolved:
+            print(f"Warning: could not resolve bond mentions: {', '.join(f'@{id}' for id in unresolved)}")
+
+        routed = route_query(self._app_settings, rewritten)
         if routed is None:
             return (
                 "Ambiguous query — try prefixing with `input:`, `cache:`, or "

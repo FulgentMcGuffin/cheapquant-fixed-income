@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from datetime import date, datetime
 
 from langchain_core.tools import StructuredTool
@@ -11,6 +12,8 @@ from cheapquant_fi.bond_manager import BondManager
 from cheapquant_fi.quantlib.quantlib_market_context_manager import (
     QuantlibMarketContextManager,
 )
+
+_MENTION_RE = re.compile(r"@([A-Za-z0-9][\w-]*)")
 
 
 def check_market_context(
@@ -68,6 +71,44 @@ def check_market_context(
             "error": str(exc),
             "message": f"Failed to check market context: {exc}",
         }
+
+
+def resolve_bond_mentions(text: str) -> tuple[str, list[str]]:
+    """Resolve `@user_friendly_id` mentions and inject resolved bond context.
+
+    For each `@token` found in text:
+    - If BondManager resolves it, strip the `@` from the visible text and
+      collect bond details into a context block.
+    - If not found, leave it unchanged and record in unresolved list.
+
+    Returns (rewritten_text, unresolved_ids). If any bonds resolved, the
+    rewritten text includes a preamble with their details for LLM context.
+
+    Args:
+        text: Input query possibly containing `@mention` tokens.
+
+    Returns:
+        Tuple of (modified text with `@` stripped and context appended, list of unresolved ids).
+    """
+    manager = BondManager.instance()
+    resolved: dict[str, dict] = {}
+    unresolved: list[str] = []
+    visible_text = text
+
+    for match in _MENTION_RE.finditer(text):
+        token = match.group(1)
+        bond = manager.get(token)
+        if bond is not None:
+            resolved[token] = bond.as_dict()
+            visible_text = visible_text.replace(f"@{token}", token)
+        else:
+            unresolved.append(token)
+
+    if not resolved:
+        return text, unresolved
+
+    context_block = f"Context — resolved bond mentions: {json.dumps(resolved)}\n\n"
+    return context_block + visible_text, unresolved
 
 
 def get_bond(bond_id: str) -> dict:
