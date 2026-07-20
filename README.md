@@ -165,7 +165,7 @@ ycs_data.duckdb/sqlite (read-only)          QuantLib (e.g. CMT pricing)
 src/cheapquant_fi/
   config.py              — YAML path configuration
   issuers.py             — sovereign conventions (19 issuers)
-  tenors.py              — pillar column mapping
+  ycs_tenors.py          — pillar column mapping
   data/rates_loader.py   — read zero/par rates from ycs_data.db
   quantlib/curve.py      — yield curve construction (ZeroInterp enum)
   quantlib/cmt.py        — CMT pricing

@@ -76,6 +76,8 @@ class IssuerProfile(metaclass=HasRulesActions):
     frequency: int = ql.Semiannual
     default_rate_type: RateType = RateType.ZERO
     ex_dividend: ExDividendConvention | None = None
+    repo_day_count: ql.DayCounter | None = None
+    repo_settlement_days: int | None = None
 
     def calendar(self) -> ql.Calendar:
         return self.calendar_factory()
@@ -137,6 +139,9 @@ ISSUERS: dict[str, IssuerProfile] = {
         settlement_days=1,
         frequency=ql.Semiannual,
         default_rate_type=RateType.ZERO,
+        # Repo (Treasury GC / SOFR-referenced): Act/360, same-day (T+0) settlement
+        repo_day_count=ql.Actual360(),
+        repo_settlement_days=0,
     ),
     "BRA": IssuerProfile(
         source_code="BRA",
@@ -173,6 +178,9 @@ ISSUERS: dict[str, IssuerProfile] = {
         settlement_days=2,
         frequency=ql.Annual,
         default_rate_type=RateType.ZERO,
+        # Repo (Eurozone GC / €STR-referenced): Act/360, same-day (T+0) settlement
+        repo_day_count=ql.Actual360(),
+        repo_settlement_days=0,
     ),
     "BEL": IssuerProfile(
         source_code="BEL",
@@ -184,6 +192,9 @@ ISSUERS: dict[str, IssuerProfile] = {
         settlement_days=2,
         frequency=ql.Annual,
         default_rate_type=RateType.ZERO,
+        # Repo (Eurozone GC / €STR-referenced): Act/360, same-day (T+0) settlement
+        repo_day_count=ql.Actual360(),
+        repo_settlement_days=0,
     ),
     "DEU": IssuerProfile(
         source_code="DEU",
@@ -195,6 +206,9 @@ ISSUERS: dict[str, IssuerProfile] = {
         settlement_days=2,
         frequency=ql.Annual,
         default_rate_type=RateType.ZERO,
+        # Repo (Eurozone GC / €STR-referenced): Act/360, same-day (T+0) settlement
+        repo_day_count=ql.Actual360(),
+        repo_settlement_days=0,
     ),
     "ESP": IssuerProfile(
         source_code="ESP",
@@ -206,6 +220,9 @@ ISSUERS: dict[str, IssuerProfile] = {
         settlement_days=2,
         frequency=ql.Annual,
         default_rate_type=RateType.ZERO,
+        # Repo (Eurozone GC / €STR-referenced): Act/360, same-day (T+0) settlement
+        repo_day_count=ql.Actual360(),
+        repo_settlement_days=0,
     ),
     "FRA": IssuerProfile(
         source_code="FRA",
@@ -217,6 +234,9 @@ ISSUERS: dict[str, IssuerProfile] = {
         settlement_days=2,
         frequency=ql.Annual,
         default_rate_type=RateType.ZERO,
+        # Repo (Eurozone GC / €STR-referenced): Act/360, same-day (T+0) settlement
+        repo_day_count=ql.Actual360(),
+        repo_settlement_days=0,
     ),
     "GBR": IssuerProfile(
         source_code="GBR",
@@ -234,6 +254,9 @@ ISSUERS: dict[str, IssuerProfile] = {
             convention=ql.Unadjusted,
             end_of_month=False,
         ),
+        # Repo (Gilt GC / SONIA-referenced): Act/365 Fixed, same-day (T+0) settlement
+        repo_day_count=ql.Actual365Fixed(),
+        repo_settlement_days=0,
     ),
     "GRC": IssuerProfile(
         source_code="GRC",
@@ -245,6 +268,9 @@ ISSUERS: dict[str, IssuerProfile] = {
         settlement_days=2,
         frequency=ql.Annual,
         default_rate_type=RateType.ZERO,
+        # Repo (Eurozone GC / €STR-referenced): Act/360, same-day (T+0) settlement
+        repo_day_count=ql.Actual360(),
+        repo_settlement_days=0,
     ),
     "IRL": IssuerProfile(
         source_code="IRL",
@@ -256,6 +282,9 @@ ISSUERS: dict[str, IssuerProfile] = {
         settlement_days=2,
         frequency=ql.Annual,
         default_rate_type=RateType.ZERO,
+        # Repo (Eurozone GC / €STR-referenced): Act/360, same-day (T+0) settlement
+        repo_day_count=ql.Actual360(),
+        repo_settlement_days=0,
     ),
     "ITA": IssuerProfile(
         source_code="ITA",
@@ -268,6 +297,9 @@ ISSUERS: dict[str, IssuerProfile] = {
         settlement_days=2,
         frequency=ql.Semiannual,
         default_rate_type=RateType.ZERO,
+        # Repo (Eurozone GC / €STR-referenced): Act/360, same-day (T+0) settlement
+        repo_day_count=ql.Actual360(),
+        repo_settlement_days=0,
     ),
     "NLD": IssuerProfile(
         source_code="NLD",
@@ -279,6 +311,9 @@ ISSUERS: dict[str, IssuerProfile] = {
         settlement_days=2,
         frequency=ql.Annual,
         default_rate_type=RateType.ZERO,
+        # Repo (Eurozone GC / €STR-referenced): Act/360, same-day (T+0) settlement
+        repo_day_count=ql.Actual360(),
+        repo_settlement_days=0,
     ),
     "PRT": IssuerProfile(
         source_code="PRT",
@@ -290,6 +325,9 @@ ISSUERS: dict[str, IssuerProfile] = {
         settlement_days=2,
         frequency=ql.Annual,
         default_rate_type=RateType.ZERO,
+        # Repo (Eurozone GC / €STR-referenced): Act/360, same-day (T+0) settlement
+        repo_day_count=ql.Actual360(),
+        repo_settlement_days=0,
     ),
     "RUS": IssuerProfile(
         source_code="RUS",
@@ -361,6 +399,9 @@ ISSUERS: dict[str, IssuerProfile] = {
         settlement_days=2,
         frequency=ql.Semiannual,
         default_rate_type=RateType.ZERO,
+        # Repo (JGB GC / TONAR-referenced): Act/365, same-day (T+0) settlement
+        repo_day_count=ql.Actual365Fixed(),
+        repo_settlement_days=0,
     ),
     "KOR": IssuerProfile(
         source_code="KOR",

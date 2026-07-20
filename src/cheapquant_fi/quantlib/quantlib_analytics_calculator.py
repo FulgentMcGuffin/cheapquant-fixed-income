@@ -10,7 +10,7 @@ from cheapquant_fi.analytics_input import BondAnalyticsInput, CmtAnalyticsInput
 from cheapquant_fi.analytics_output import FixedIncomeAnalyticsOutput
 from cheapquant_fi.issuers import IssuerProfile, resolve_issuer
 from cheapquant_fi.quantlib.quantlib_market_context import QuantlibMarketContext
-from cheapquant_fi.tenors import TENOR_COLUMN_TO_YEARS, label_to_column
+from cheapquant_fi.ycs_tenors import TENOR_COLUMN_TO_YEARS, label_to_column
 
 _INPUT_PRICE_FIELDS = frozenset({"clean_price", "yield_to_maturity"})
 
@@ -201,7 +201,12 @@ class QuantLibAnalyticsCalculator:
         curve_handle: ql.YieldTermStructureHandle | None = None,
         include_accrued: bool = True,
     ) -> FixedIncomeAnalyticsOutput:
-        clean = bond.cleanPrice()
+        if curve_handle is not None:
+            clean = ql.BondFunctions.cleanPrice(
+                bond, curve_handle.currentLink(), settlement
+            )
+        else:
+            clean = bond.cleanPrice()
         dirty = bond.dirtyPrice()
         accrued = (dirty - clean) if include_accrued else 0.0
         yld = bond.bondYield(
@@ -237,16 +242,37 @@ class QuantLibAnalyticsCalculator:
         )
 
         z_spread_bps = None
+        par_yield = None
+        zero_rate = None
         if curve_handle is not None:
+            curve = curve_handle.currentLink()
             z_spread_bps = (
                 ql.BondFunctions.zSpread(
                     bond,
                     ql.BondPrice(clean, ql.BondPrice.Clean),
-                    curve_handle.currentLink(),
+                    curve,
                     ql.Compounded,
                     issuer.frequency,
                 )
                 * 10_000.0
+            )
+            par_yield = (
+                ql.BondFunctions.atmRate(
+                    bond,
+                    curve,
+                    settlement,
+                    ql.BondPrice(100.0, ql.BondPrice.Clean),
+                )
+                * 100.0
+            )
+            zero_rate = (
+                curve_handle.zeroRate(
+                    bond.maturityDate(),
+                    issuer.day_count,
+                    ql.Compounded,
+                    issuer.frequency,
+                ).rate()
+                * 100.0
             )
 
         return FixedIncomeAnalyticsOutput(
@@ -259,6 +285,8 @@ class QuantLibAnalyticsCalculator:
             dv01_sensitivity=bpv,
             gamma_sensitivity=convexity * clean / 100.0 if convexity is not None else None,
             z_spread=z_spread_bps,
+            par_yield=par_yield,
+            zero_rate=zero_rate,
         )
 
     def _bond_metrics_from_input(

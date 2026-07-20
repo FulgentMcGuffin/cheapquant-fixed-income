@@ -10,7 +10,7 @@ import polars as pl
 from mcp_data.backends.sqlite_backend import SQLiteSource
 
 from cheapquant_fi.issuers import IssuerProfile, RateType
-from cheapquant_fi.tenors import TENOR_COLUMNS
+from cheapquant_fi.ycs_tenors import TENOR_COLUMNS
 
 
 def _parse_date(value: str | date) -> date:
@@ -54,7 +54,7 @@ def load_curve_rates(
         rate = row.get(col)
         if rate is None:
             continue
-        from cheapquant_fi.tenors import TENOR_COLUMN_TO_YEARS, column_to_label
+        from cheapquant_fi.ycs_tenors import TENOR_COLUMN_TO_YEARS, column_to_label
 
         records.append(
             {

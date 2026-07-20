@@ -62,9 +62,13 @@ class FixedIncomeAnalyticsOutput:
     convexity: float | None = None
     dv01_sensitivity: float | None = None
     gamma_sensitivity: float | None = None
-    mm_cmt_yield: float | None = None
-    mm_fc_cmt_yield: float | None = None
     z_spread: float | None = None
+
+    par_yield: float | None = None
+    zero_rate: float | None = None
+    mm_cmt_analytic_id: str | None = None
+    mm_fc_cmt_analytic_id: str | None = None
+
     repo_rate_1m: float | None = None
     repo_rate_3m: float | None = None
     repo_rate_6m: float | None = None
