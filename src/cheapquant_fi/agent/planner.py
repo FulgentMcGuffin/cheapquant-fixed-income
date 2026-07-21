@@ -23,6 +23,13 @@ _MCTX_CMD_RE = re.compile(
     r"(?:\s+(?P<issuer>\S+))?(?:\s+(?P<curve_label>\S+))?$",
     re.IGNORECASE,
 )
+_CALC_CMD_RE = re.compile(
+    r"^/calc\s+@?(?P<bond_id>\S+)"
+    r"(?:\s+(?P<trade_date>\d{4}-\d{2}-\d{2}))?"
+    r"(?:\s+(?P<curve_label>\S+))?"
+    r"(?:\s+(?P<numeric_term_structure>\{.*\}))?$",
+    re.IGNORECASE,
+)
 
 
 class CQFIRulePlanner(RuleBasedPlanner):
@@ -78,6 +85,28 @@ class CQFIRulePlanner(RuleBasedPlanner):
                     },
                 )
             ]
+
+        # Handle /calc command syntax
+        calc_match = _CALC_CMD_RE.match(text)
+        if calc_match and "compute_bond_analytics" in available_tools:
+            bond_id = calc_match.group("bond_id").strip()
+            trade_date = calc_match.group("trade_date")
+            curve_label = calc_match.group("curve_label") or "BOND_ZERO"
+            numeric_term_structure_str = calc_match.group("numeric_term_structure")
+
+            kwargs = {
+                "bond_id": bond_id,
+                "curve_label": curve_label,
+            }
+            if trade_date:
+                kwargs["trade_date"] = trade_date.strip()
+            if numeric_term_structure_str:
+                try:
+                    kwargs["numeric_term_structure"] = eval(numeric_term_structure_str)
+                except Exception:
+                    pass
+
+            return [ToolCall("compute_bond_analytics", kwargs)]
 
         return []
 

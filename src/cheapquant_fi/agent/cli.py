@@ -37,6 +37,8 @@ from cheapquant_fi.cache.manager import CacheManager
 from cheapquant_fi.cli_tools import (
     check_market_context,
     check_market_context_lc_tool,
+    compute_bond_analytics,
+    compute_bond_analytics_lc_tool,
     get_bond,
     get_bond_lc_tool,
     resolve_bond_mentions,
@@ -45,7 +47,7 @@ from cheapquant_fi.cli_tools import (
 # Real, executable LangChain tools bound into SQLAgent/LLMPlanner alongside the
 # built-in SQL tools, so the LLM can genuinely call them (not just read a text
 # description) -- see cheapquant_fi.cli_tools.
-EXTRA_TOOLS = [get_bond_lc_tool, check_market_context_lc_tool]
+EXTRA_TOOLS = [get_bond_lc_tool, check_market_context_lc_tool, compute_bond_analytics_lc_tool]
 
 
 @dataclass(frozen=True)
@@ -80,6 +82,17 @@ HELP_TEXT_CQFI = (
     "              /bond US0001\n"
     "    Also available in LLM mode: \"Show bond usa10y001 as JSON\", \"what's the\n"
     "    duration of fraapr029?\"\n"
+    "\n"
+    "Bond analytics commands:\n"
+    "  /calc <id> [date] [curve] [term_structure]  — compute bond analytics\n"
+    "    id: bond_friendly_id or bond_id (required)\n"
+    "    date: YYYY-MM-DD (optional, defaults to latest available date)\n"
+    "    curve: curve label (optional, defaults to BOND_ZERO)\n"
+    "    term_structure: JSON dict of tenors to rates (optional)\n"
+    "    Examples: /calc fraapr029\n"
+    "              /calc usa10y001 2024-02-15\n"
+    "              /calc @fraapr029 2024-02-15 BOND_ZERO {\"1m\": 2.1, \"3m\": 2.15}\n"
+    "    Also available in LLM mode: \"Calculate analytics for fraapr029\"\n"
     "\n"
     "Session commands:\n"
     "  save [session_id]   — persist active cache to data/sessions/\n"
@@ -116,7 +129,67 @@ _MCTX_RE = re.compile(
 )
 
 _BOND_RE = re.compile(r"^/bond\s+@?(?P<id>\S+)$", re.IGNORECASE)
+_BOND_HELP_RE = re.compile(r"^/bond\s*$", re.IGNORECASE)
+_CALC_RE = re.compile(
+    r"^/calc\s+@?(?P<bond_id>\S+)"
+    r"(?:\s+(?P<trade_date>\d{4}-\d{2}-\d{2}))?"
+    r"(?:\s+(?P<curve_label>\S+))?"
+    r"(?:\s+(?P<numeric_term_structure>\{.*\}))?$",
+    re.IGNORECASE,
+)
+_CALC_HELP_RE = re.compile(r"^/calc\s*$", re.IGNORECASE)
+_MCTX_HELP_RE = re.compile(r"^/mctx\s*$", re.IGNORECASE)
 _BARE_MENTION_RE = re.compile(r"^@(?P<id>\S+)$")
+
+_BOND_HELP_TEXT = (
+    "Bond Information Lookup\n"
+    "======================\n"
+    "\n"
+    "The /bond command loads and displays a bond's details from the bond_universe table as JSON.\n"
+    "This includes issuer, maturity, coupon, and other bond characteristics.\n"
+    "\n"
+    "Arguments: /bond <id> (where <id> is a user_friendly_id or bond_id)\n"
+    "\n"
+    "Examples:\n"
+    "  /bond fraapr029           — Load French April 2029 bond\n"
+    "  /bond @usa10y001          — Load US 10Y bond (@ prefix optional)\n"
+)
+
+_MCTX_HELP_TEXT = (
+    "Market Context Verification\n"
+    "============================\n"
+    "\n"
+    "The /mctx command checks if yield curve data exists for a given date, issuer, and curve type.\n"
+    "If the market context doesn't exist, it attempts to build it. Use this to verify data availability\n"
+    "before pricing bonds or running analytics.\n"
+    "\n"
+    "Arguments: /mctx <date> [issuer] [curve_label]\n"
+    "  <date>: YYYY-MM-DD (required)\n"
+    "  [issuer]: Optional issuer code (e.g., USA, DEU, FRA). If omitted, checks all issuers.\n"
+    "  [curve_label]: Optional curve type (BOND_ZERO or BOND_PAR). Defaults to BOND_ZERO.\n"
+    "\n"
+    "Examples:\n"
+    "  /mctx 2024-02-15 FRA      — Check France market on Feb 15, 2024\n"
+    "  /mctx 2024-02-15          — Check all markets on Feb 15, 2024\n"
+)
+
+_CALC_HELP_TEXT = (
+    "Bond Analytics Calculation\n"
+    "==========================\n"
+    "\n"
+    "The /calc command computes fixed-income analytics for a bond given market conditions.\n"
+    "This includes yield-to-maturity, duration, convexity, roll-down, carry, and other metrics.\n"
+    "\n"
+    "Arguments: /calc <bond_id> [trade_date] [curve_label] [numeric_term_structure]\n"
+    "  <bond_id>: Bond identifier — user_friendly_id or bond_id (required)\n"
+    "  [trade_date]: Valuation date in YYYY-MM-DD format (optional, defaults to latest available)\n"
+    "  [curve_label]: Curve collection (BOND_ZERO or BOND_PAR, defaults to BOND_ZERO)\n"
+    "  [numeric_term_structure]: JSON dict of repo rates (optional, for programmatic use)\n"
+    "\n"
+    "Examples:\n"
+    "  /calc fraapr029           — Calculate analytics for FRA APR 2029 bond\n"
+    "  /calc usa10y001 2024-02-15 BOND_ZERO  — Calculate for US 10Y on specific date\n"
+)
 
 
 def _ensure_utf8_stdout() -> None:
@@ -202,6 +275,22 @@ async def _run_tool_calls(client: DBClient, calls: list[ToolCall]) -> None:
                 print(f"Tool error: {exc}")
             continue
 
+        if call.name == "compute_bond_analytics":
+            try:
+                result = compute_bond_analytics(
+                    call.arguments.get("bond_id", ""),
+                    trade_date=call.arguments.get("trade_date"),
+                    curve_label=call.arguments.get("curve_label", "BOND_ZERO"),
+                    numeric_term_structure=call.arguments.get("numeric_term_structure"),
+                )
+                if result.get("status") == "success":
+                    print(result["analytics_json"])
+                else:
+                    print(_render(result))
+            except Exception as exc:
+                print(f"Tool error: {exc}")
+            continue
+
         if call.name not in tools:
             print(f"Tool {call.name!r} not available (have: {tools})")
             continue
@@ -218,6 +307,19 @@ async def _query_dataset(
     use_single_shot: bool,
     force_rule: bool,
 ) -> None:
+    # Check for no-argument help requests first
+    if _BOND_HELP_RE.match(text.strip()):
+        print(_BOND_HELP_TEXT)
+        return
+
+    if _MCTX_HELP_RE.match(text.strip()):
+        print(_MCTX_HELP_TEXT)
+        return
+
+    if _CALC_HELP_RE.match(text.strip()):
+        print(_CALC_HELP_TEXT)
+        return
+
     # Check for slash commands before routing to planner
     bond_match = _BOND_RE.match(text.strip())
     if bond_match:
@@ -252,6 +354,36 @@ async def _query_dataset(
             print(f"Market context error: {exc}")
         return
 
+    calc_match = _CALC_RE.match(text.strip())
+    if calc_match:
+        bond_id = calc_match.group("bond_id")
+        trade_date = calc_match.group("trade_date")
+        curve_label = calc_match.group("curve_label") or "BOND_ZERO"
+        numeric_term_structure_str = calc_match.group("numeric_term_structure")
+
+        kwargs = {
+            "bond_id": bond_id,
+            "curve_label": curve_label,
+        }
+        if trade_date:
+            kwargs["trade_date"] = trade_date.strip()
+        if numeric_term_structure_str:
+            try:
+                kwargs["numeric_term_structure"] = eval(numeric_term_structure_str)
+            except Exception as e:
+                print(f"Error parsing term structure: {e}")
+                return
+
+        try:
+            result = compute_bond_analytics(**kwargs)
+            if result.get("status") == "success":
+                print(result["analytics_json"])
+            else:
+                print(f"Error: {result.get('message')}")
+        except Exception as exc:
+            print(f"Analytics error: {exc}")
+        return
+
     use_agent, use_single_shot = resolve_query_mode(
         use_agent=use_agent,
         use_single_shot=use_single_shot,
@@ -283,7 +415,7 @@ async def _query_dataset(
 
         # Add custom tools to available tools list
         tools = list(await client.list_tools())
-        tools.extend(["check_market_context", "get_bond"])
+        tools.extend(["check_market_context", "get_bond", "compute_bond_analytics"])
         calls = planner.plan(text, tools)
         if not calls:
             print(f"[{target}] Could not interpret that.\n{RULE_MODE_HINT}")
@@ -298,6 +430,19 @@ def _handle_local_command(
 ) -> bool:
     """Handle pricing/session commands locally. Returns True if handled."""
     lowered = text.strip().lower()
+
+    # Check for no-argument help requests
+    if _BOND_HELP_RE.match(text.strip()):
+        print(_BOND_HELP_TEXT)
+        return True
+
+    if _MCTX_HELP_RE.match(text.strip()):
+        print(_MCTX_HELP_TEXT)
+        return True
+
+    if _CALC_HELP_RE.match(text.strip()):
+        print(_CALC_HELP_TEXT)
+        return True
 
     if lowered in ("help", "?"):
         print(HELP_TEXT_CQFI)
@@ -390,6 +535,36 @@ def _handle_local_command(
                 print(f"Error: {result.get('message')}")
         except Exception as exc:
             print(f"Bond error: {exc}")
+        return True
+
+    match = _CALC_RE.match(text.strip())
+    if match:
+        bond_id = match.group("bond_id")
+        trade_date = match.group("trade_date")
+        curve_label = match.group("curve_label") or "BOND_ZERO"
+        numeric_term_structure_str = match.group("numeric_term_structure")
+
+        kwargs = {
+            "bond_id": bond_id,
+            "curve_label": curve_label,
+        }
+        if trade_date:
+            kwargs["trade_date"] = trade_date.strip()
+        if numeric_term_structure_str:
+            try:
+                kwargs["numeric_term_structure"] = eval(numeric_term_structure_str)
+            except Exception as e:
+                print(f"Error parsing term structure: {e}")
+                return True
+
+        try:
+            result = compute_bond_analytics(**kwargs)
+            if result.get("status") == "success":
+                print(result["analytics_json"])
+            else:
+                print(f"Error: {result.get('message')}")
+        except Exception as exc:
+            print(f"Analytics error: {exc}")
         return True
 
     return False
