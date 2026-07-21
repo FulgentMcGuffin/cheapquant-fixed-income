@@ -7,6 +7,7 @@ from datetime import date
 
 from cheapquant_fi.issuers import ISSUERS
 from cheapquant_fi.instruments import Bond
+from cheapquant_fi.numeric_term_structure import NumericTermStructure
 
 
 @dataclass(frozen=True)
@@ -22,6 +23,7 @@ class BondAnalyticsInput:
     face_amount: float = 100.0
     input_column: str | None = None
     input_value: float | None = None
+    repo_term_structure: NumericTermStructure | None = None
 
     @classmethod
     def from_bond(
@@ -34,6 +36,7 @@ class BondAnalyticsInput:
         face_amount: float | None = None,
         input_column: str | None = None,
         input_value: float | None = None,
+        repo_term_structure: NumericTermStructure | None = None
     ) -> BondAnalyticsInput:
         """Build analytics inputs from a :class:`Bond` universe record."""
         if settlement_date is None:
@@ -59,6 +62,7 @@ class BondAnalyticsInput:
             face_amount=resolved_face_amount,
             input_column=input_column,
             input_value=input_value,
+            repo_term_structure=repo_term_structure,
         )
 
 
