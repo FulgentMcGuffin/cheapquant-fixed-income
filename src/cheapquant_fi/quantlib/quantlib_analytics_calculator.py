@@ -434,21 +434,20 @@ class QuantLibAnalyticsCalculator:
         carry_6m = None
         carry_1y = None
         if repo_term_structure is not None:
-            repo_term_structure = repo_term_structure.filter({'1m', '3m', '6m', '1y'})
+            repo_term_structure = repo_term_structure.filter({"1m", "3m", "6m", "1y"})
             if len(repo_term_structure) > 0:
-                carry_1m = repo_term_structure.rates.get('1m', None)
-                if carry_1m is not None:
-                    carry_1m = yld - carry_1m 
-                carry_3m = repo_term_structure.rates.get('3m', None)
-                if carry_3m is not None:
-                    carry_3m = yld - carry_3m 
-                carry_6m = repo_term_structure.rates.get('6m', None)
-                if carry_6m is not None:
-                    carry_6m = yld - carry_6m 
-                carry_1y = repo_term_structure.rates.get('1y', None)
-                if carry_1y is not None:
-                    carry_1y = yld - carry_1y 
-            pass
+                repo_rates = repo_term_structure.to_dict()
+
+                def _repo_carry(label: str) -> float | None:
+                    repo_rate = repo_rates.get(label)
+                    if repo_rate is None:
+                        return None
+                    return (yld - repo_rate) * 100.0
+
+                carry_1m = _repo_carry("1m")
+                carry_3m = _repo_carry("3m")
+                carry_6m = _repo_carry("6m")
+                carry_1y = _repo_carry("1y")
 
         z_spread_bps = None
         par_yield = None
@@ -473,15 +472,17 @@ class QuantLibAnalyticsCalculator:
                 )
                 * 10_000.0
             )
-            par_yield = (
-                ql.BondFunctions.atmRate(
-                    bond,
-                    curve,
-                    bond_settlement,
-                    ql.BondPrice(100.0, ql.BondPrice.Clean),
+            par_yield = None
+            if not zero_coupon and coupon_pct not in (None, 0.0):
+                par_yield = (
+                    ql.BondFunctions.atmRate(
+                        bond,
+                        curve,
+                        bond_settlement,
+                        ql.BondPrice(100.0, ql.BondPrice.Clean),
+                    )
+                    * 100.0
                 )
-                * 100.0
-            )
             zero_rate = (
                 curve_handle.zeroRate(
                     bond.maturityDate(),
@@ -585,12 +586,15 @@ class QuantLibAnalyticsCalculator:
         else:
             clean = input_value
             yld = ql.BondFunctions.bondYield(
-                bond, clean, dc, comp, freq, settlement
+                bond,
+                ql.BondPrice(clean, ql.BondPrice.Clean),
+                dc,
+                comp,
+                freq,
+                settlement,
             )
 
-        dirty = ql.BondFunctions.dirtyPrice(
-            bond, yld, dc, comp, freq, settlement
-        )
+        dirty = clean + ql.BondFunctions.accruedAmount(bond, settlement)
         accrued = dirty - clean if include_accrued else 0.0
 
         macaulay = ql.BondFunctions.duration(

@@ -48,11 +48,12 @@ class NumericTermStructure:
             return self
         return NumericTermStructure(
             [
-                (str(label), rate)
-                for label, rate in self.rates.items()
-                if str(label) in acceptable_tenors
+                (str(tenor), rate)
+                for tenor, rate in self.rates.items()
+                if str(tenor) in acceptable_tenors
             ],
             self.as_of,
+            to_decimal=False,
         )
 
     def to_dict(self) -> dict[str, float]:
