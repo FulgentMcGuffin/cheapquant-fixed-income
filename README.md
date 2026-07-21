@@ -26,12 +26,17 @@ the GUI) renders tables and charts from the result.
 - **Market context** — lazy-built `QuantlibMarketContext` objects keyed by
   valuation date and issuer. Curves are loaded from `ycs_data` on demand and
   cached in a process-wide singleton. Use `/mctx` in the CLI or the
-  `check_market_context` LLM tool.
+  `check_market_context` LLM tool to verify/build curves.
 
-- **Bond universe** — look up individual bonds from `bond_universe` by
+- **Bond lookup** — look up individual bonds from `bond_universe` by
   `user_friendly_id` or `bond_id` via `/bond`, `@mention` syntax, or the
   `get_bond` LLM tool. Bonds deserialize into typed `Bond` objects via
   `BondManager`.
+
+- **Bond analytics** — compute fixed-income metrics for any bond using the `/calc`
+  command or `compute_bond_analytics` LLM tool. Results include yield, duration,
+  convexity, z-spread, carry, roll-down analysis, and more. Trade date and curve
+  label are optional (default to latest date and BOND_ZERO curve).
 
 - **Three queryable datasets** (auto-routed by keyword, or forced with a prefix):
 
@@ -117,21 +122,62 @@ Prefixes are optional when the question clearly targets one dataset (e.g.
 
 ### Direct commands
 
+#### Pricing commands
+
 ```
 cqfi> price cmt USA 2020-01-02
 cqfi> price cmt DEU 2019-06-14 --par
-cqfi> /mctx 2024-02-15 USA BOND_ZERO
-cqfi> /bond usa10y001
-cqfi> @fraapr029                     # bare @mention resolves like /bond
-cqfi> save my-run-001
-cqfi> load my-run-001
-cqfi> sessions
-cqfi> reset cache
 ```
 
-`/mctx` checks whether a `QuantlibMarketContext` exists for the given date (and
-optionally issuer/curve label) and builds it from `ycs_data` if missing.
-Supported curve labels include `BOND_ZERO` (default) and `BOND_PAR`.
+#### Market context
+
+```
+cqfi> /mctx 2024-02-15              # Check all curves for the date
+cqfi> /mctx 2024-02-15 USA          # Check USA market for the date
+cqfi> /mctx 2024-02-15 USA BOND_ZERO  # Check specific curve
+cqfi> /mctx                          # Show /mctx help
+```
+
+`/mctx` verifies whether a `QuantlibMarketContext` exists for a given date
+(optionally filtered by issuer and/or curve label) and builds it from `ycs_data`
+if missing. Supported curve labels: `BOND_ZERO` (default) and `BOND_PAR`.
+
+#### Bond lookup
+
+```
+cqfi> /bond usa10y001               # Look up by bond_id
+cqfi> /bond fraapr029               # Look up by user_friendly_id
+cqfi> @fraapr029                    # bare @mention shorthand
+cqfi> /bond                         # Show /bond help
+```
+
+`/bond` loads a bond's details from `bond_universe` as JSON. The `@mention`
+syntax (e.g., `@fraapr029`) works in natural-language queries to inject bond
+context into the LLM's reasoning.
+
+#### Bond analytics
+
+```
+cqfi> /calc fraapr029               # Calculate using latest date, BOND_ZERO curve
+cqfi> /calc usa10y001 2024-02-15    # Specify trade date
+cqfi> /calc fraapr029 2024-02-15 BOND_PAR  # Specify curve label
+cqfi> /calc @fraapr029              # @ prefix optional
+cqfi> /calc                         # Show /calc help
+```
+
+`/calc` computes fixed-income analytics for a bond under current market conditions.
+Results include yield-to-maturity, duration, convexity, z-spread, par yield, carry
+metrics, and roll-down analysis. If `trade_date` is omitted, the latest available
+date for the issuer is used. Default curve label is `BOND_ZERO`.
+
+#### Session management
+
+```
+cqfi> save my-run-001
+cqfi> load my-run-001
+cqfi> sessions                      # List saved sessions
+cqfi> reset cache                   # Clear active cache
+```
 
 ### LLM mode
 
@@ -150,6 +196,7 @@ In LLM mode the agent can call SQL tools **and** fixed-income tools:
 
 - `get_bond` — look up a bond and return its JSON representation
 - `check_market_context` — ensure curves exist for a valuation date/issuer
+- `compute_bond_analytics` — calculate bond analytics (yield, duration, convexity, carry, etc.)
 
 Example prompts:
 
@@ -157,6 +204,8 @@ Example prompts:
 Is there a market for France on 2022-02-17?
 Show bond usa10y001 as JSON
 What was the 2s10s slope for Italy in 2019?
+Calculate analytics for fraapr029
+What is the duration of USA 10Y on 2024-02-15?
 ```
 
 Without an API key, use rule syntax (works offline):
@@ -354,7 +403,7 @@ src/cheapquant_fi/
   analytics_input.py                — BondAnalyticsInput, CmtAnalyticsInput
   analytics_output.py               — FixedIncomeAnalyticsOutput
   analytics_calculator.py           — AnalyticsCalculator protocol
-  cli_tools.py                      — get_bond, check_market_context LLM tools
+  cli_tools.py                      — get_bond, check_market_context, compute_bond_analytics LLM tools
   agent/
     cli.py                          — cqfi REPL entry point
     planner.py                      — rule/LLM query planning, /bond /mctx routing
