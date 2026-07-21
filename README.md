@@ -1,9 +1,10 @@
 # cheapquant-fixed-income
 
 Interactive agent for **QuantLib** fixed-income analytics on government bonds.
-Yield-curve inputs come from a read-only SQLite or DuckDB database; QuantLib outputs are
-cached in SQLite via [framecache](https://github.com/hraoyama/FrameCache) and
-queryable through an LLM using [mcp-data](https://github.com/hraoyama/mcp_data).
+Yield-curve inputs come from a read-only DuckDB or SQLite database (`ycs_data`);
+QuantLib outputs are cached in SQLite via [framecache](https://github.com/hraoyama/FrameCache);
+bond universes and historical analytics live in a separate **bond analytics** database;
+and all three datasets are queryable through an LLM using [mcp-data](https://github.com/hraoyama/mcp_data).
 
 Available as both a **terminal CLI** (`cqfi`) and a **GUI chat window** (`cqfi-gui`).
 
@@ -15,44 +16,55 @@ the GUI) renders tables and charts from the result.
 
 ![Example: 5Y CMT yields plotted from a natural-language query](resource/png/5ycmts.png)
 
-### What you can drive by conversation
+### What you can do today
 
-- **QuantLib** — price CMTs, bootstrap curves, and run fixed-income analytics
-  (19 sovereign issuers, 18 curve interpolation/fitting methods). Ask in plain
-  language; the agent invokes the QuantLib layer and explains what it computed.
-  More features in dev.
+- **QuantLib pricing & analytics** — bootstrap yield curves (19 sovereign issuers,
+  18 interpolation/fitting methods), price CMTs, and compute bond/CMT analytics:
+  yield, duration, convexity, z-spread, par yield, curve zero rate, carry, and
+  yield rolls (spot and forward at 1m/3m/6m/1y horizons).
 
-- **Analytics cache** — every tool and pricing call is stored in a
-  [framecache](https://github.com/hraoyama/FrameCache) SQLite cache. Query it
-  with `cache:` prompts to review past runs, compare sessions, or pick up where
-  you left off without recomputing.
+- **Market context** — lazy-built `QuantlibMarketContext` objects keyed by
+  valuation date and issuer. Curves are loaded from `ycs_data` on demand and
+  cached in a process-wide singleton. Use `/mctx` in the CLI or the
+  `check_market_context` LLM tool.
 
-- **Your databases (SQLite / DuckDB)** — attach read-only user datasets (yield
-  inputs, bond universes, custom tables) described by YAML semantics. The agent
-  plans SQL, runs it through [mcp-data](https://github.com/hraoyama/mcp_data),
-  and surfaces the answer as text, a table, or a plot.
+- **Bond universe** — look up individual bonds from `bond_universe` by
+  `user_friendly_id` or `bond_id` via `/bond`, `@mention` syntax, or the
+  `get_bond` LLM tool. Bonds deserialize into typed `Bond` objects via
+  `BondManager`.
 
-- **Mix and match** — combine sources in one flow: pull a curve from
-  `ycs_data`, price a CMT with QuantLib, write results to the cache, then ask
-  “plot the 5Y CMTs we just stored for Germany” — data and tools are composable,
-  not siloed.
+- **Three queryable datasets** (auto-routed by keyword, or forced with a prefix):
 
-### On the roadmap *(in development)*
+  | Prefix | Database | Typical questions |
+  |--------|----------|-----------------|
+  | `input:` | `ycs_data` | zero/par rates, FX, correlations, curve slopes |
+  | `cache:` | active framecache | CMT prices, past QuantLib runs, calculation log |
+  | `bond_analytics:` | `bond_analytics` | bond universe, stored analytics, CMT analytics |
 
-- **Plug-in user tools** — register your own Python callables as agent tools
+- **Analytics cache** — every pricing call is stored in framecache SQLite.
+  Save/load named sessions under `data/sessions/` to compare runs.
+
+- **Mix and match** — pull a curve from `ycs_data`, ensure market context exists,
+  price a bond, write results to cache, then ask “plot the 5Y CMTs we stored for
+  Germany”. Data sources and QuantLib tools compose in one conversation.
+
+### On the roadmap
+
+- **Plug-in user tools** — register custom Python callables as agent tools
   alongside the built-in QuantLib and SQL paths.
 
-- **Historical analytics database** — persist bond/CMT analytics over time
-  (`bond_analytics` DuckDB/SQLite) for longitudinal queries and reporting. Or plug in your own database for this.
+- **Full analytics persistence** — write computed `bond_analytics` / `cmt_analytics`
+  rows to the bond analytics DB on every run (schema and build script exist;
+  runtime persistence is controlled by `settings.write_to_bond_analytics_db`).
 
 ### Interfaces
 
-- **`cqfi` (CLI)** — interactive REPL with `input:` / `cache:` prefixes and
-  direct commands (`price cmt …`, session save/load).
+- **`cqfi` (CLI)** — interactive REPL with dataset prefixes, direct pricing
+  commands, market-context and bond lookups, and session save/load.
 
 - **`cqfi-gui` (GUI)** — PySide6 chat window: Markdown replies, sortable result
-  tables, auto-generated plotnine charts (see screenshot above), Download/Copy
-  actions, and plot/table settings.
+  tables, auto-generated plotnine charts, Download/Copy actions, and
+  plot/table settings.
 
 ## Setup
 
@@ -71,10 +83,17 @@ Optional per-path overrides live in `.env` (see `.env.example`).
 | YCS DB | `paths.ycs_db` | `D:/data/duckdb/ycs_data.duckdb` |
 | YCS semantics | `paths.ycs_semantics` | `./semantics/ycs_data.yaml` |
 | Bond analytics DB | `paths.bond_analytics_db` | `D:/data/duckdb/bond_analytics.duckdb` |
+| Bond analytics semantics | `paths.bond_analytics_semantics` | `./semantics/bond_analytics.yaml` |
 | Active cache | `paths.cache_db` | `./data/cache/active_cache.db` |
 | Sessions | `paths.sessions_dir` | `./data/sessions/` |
 | Cache semantics | `paths.cache_semantics_dir` | `./semantics` |
 | Write analytics to bond DB | `settings.write_to_bond_analytics_db` | `true` |
+
+Build or refresh the bond analytics database (schema + CSV seed data):
+
+```powershell
+uv run python -m cheapquant_fi.data.create_bond_analytics_db
+```
 
 ## CLI usage (`cqfi`)
 
@@ -84,14 +103,35 @@ uv run cqfi --config config/cqfi.yaml
 uv run main.py        # IDE-friendly: auto-relaunches via .venv
 ```
 
+### Dataset queries
+
+```
+cqfi> input: average 10Y zero rate for Germany in 2012
+cqfi> cache: what 10Y CMT prices did we compute for USA?
+cqfi> bond_analytics: show bonds for France maturing after 2030
+```
+
+Prefixes are optional when the question clearly targets one dataset (e.g.
+“zero rate” → `input:`, “CMT price we computed” → `cache:`, “bond universe” →
+`bond_analytics:`).
+
+### Direct commands
+
 ```
 cqfi> price cmt USA 2020-01-02
 cqfi> price cmt DEU 2019-06-14 --par
-cqfi> input: average 10Y zero rate for Germany in 2012
-cqfi> cache: what 10Y CMT prices did we compute for USA?
+cqfi> /mctx 2024-02-15 USA BOND_ZERO
+cqfi> /bond usa10y001
+cqfi> @fraapr029                     # bare @mention resolves like /bond
 cqfi> save my-run-001
 cqfi> load my-run-001
+cqfi> sessions
+cqfi> reset cache
 ```
+
+`/mctx` checks whether a `QuantlibMarketContext` exists for the given date (and
+optionally issuer/curve label) and builds it from `ycs_data` if missing.
+Supported curve labels include `BOND_ZERO` (default) and `BOND_PAR`.
 
 ### LLM mode
 
@@ -106,13 +146,29 @@ uv run cqfi --llm
 uv run cqfi --llm-single-shot
 ```
 
+In LLM mode the agent can call SQL tools **and** fixed-income tools:
+
+- `get_bond` — look up a bond and return its JSON representation
+- `check_market_context` — ensure curves exist for a valuation date/issuer
+
+Example prompts:
+
+```
+Is there a market for France on 2022-02-17?
+Show bond usa10y001 as JSON
+What was the 2s10s slope for Italy in 2019?
+```
+
 Without an API key, use rule syntax (works offline):
 
 ```
 input: tables
 input: schema zero_rates
 input: sql: SELECT AVG(Y010p0) FROM zero_rates WHERE source='DEU'
+bond_analytics: schema bond_universe
 ```
+
+Force rule syntax even when an API key is set: `cqfi --rule`
 
 LangSmith tracing is **off by default** — set `CQFI_LANGSMITH=1` in `.env` to
 opt in (requires `LANGCHAIN_API_KEY`).
@@ -127,9 +183,98 @@ uv run cqfi-gui --config config/cqfi.yaml
 `cqfi-gui` uses the same `config/cqfi.yaml` as the CLI by default.
 Set `ANTHROPIC_API_KEY` in `.env` to enable LLM-powered queries.
 
+## Bond analytics (Python API)
+
+The analytics layer is split into typed inputs/outputs and a QuantLib backend.
+
+```python
+from datetime import date
+
+from cheapquant_fi.analytics_input import BondAnalyticsInput
+from cheapquant_fi.bond_manager import BondManager
+from cheapquant_fi.numeric_term_structure import NumericTermStructure
+from cheapquant_fi.quantlib.quantlib_analytics_calculator import QuantLibAnalyticsCalculator
+from cheapquant_fi.quantlib.quantlib_market_context_manager import QuantlibMarketContextManager
+
+# Ensure curves exist for the settlement date (loads from ycs_data on first use)
+market = QuantlibMarketContextManager.instance().get(date(2024, 1, 15), "DEU")
+
+# From bond_universe
+bond = BondManager.instance().get("usa10y001")
+request = BondAnalyticsInput.from_bond(
+    bond,
+    trade_date=date(2024, 1, 15),
+    repo_term_structure=NumericTermStructure(
+        {"1m": 5.25, "3m": 5.10, "6m": 4.95, "1y": 4.80},
+        as_of=date(2024, 1, 15),
+    ),
+)
+
+# Or specify directly
+request = BondAnalyticsInput(
+    issuer="DEU",
+    coupon=2.5,
+    maturity_date=date(2034, 1, 15),
+    settlement_date=date(2024, 1, 17),
+    issue_date=date(2024, 1, 15),
+)
+
+calc = QuantLibAnalyticsCalculator()
+result = calc.compute_bond_analytics(request, market)
+
+print(result.yield_to_maturity)   # percent
+print(result.z_spread)            # basis points
+print(result.roll_1y_spotyield)   # spot YTM minus 9y-equivalent YTM
+print(result.roll_1y_fwdyield)    # spot YTM minus forward YTM in 1y
+print(result.as_json())           # populated fields only
+```
+
+When a curve is available, analytics include:
+
+| Field | Meaning |
+|-------|---------|
+| `yield_to_maturity`, `clean_price`, `dirty_price`, `accrued_interest` | Standard price/yield measures |
+| `duration`, `convexity`, `dv01_sensitivity`, `gamma_sensitivity` | Risk metrics |
+| `z_spread` | Z-spread to curve (bps) |
+| `par_yield`, `zero_rate` | Par yield and curve zero at maturity (%) |
+| `roll_*_spotyield` | Spot YTM minus YTM if maturity were shortened by the horizon |
+| `roll_*_fwdyield` | Spot YTM minus YTM priced on the same curve at a forward date |
+| `carry_*` | Yield minus repo rate from an optional `NumericTermStructure` |
+
+CMT analytics use the same calculator with `CmtAnalyticsInput` (zero-coupon by
+default; pass `coupon=` for a fixed-coupon synthetic).
+
+## Tenor strings
+
+Human-readable tenors are parsed by the `Tenor` class (`tenor.py`):
+
+```python
+from cheapquant_fi.tenor import Tenor
+
+t = Tenor.parse("12y4M3w12d")   # order-independent
+t.simplify()                    # carry units (60s→m, 7d→w, 12m→y, …)
+t.add_to(date(2024, 1, 15))   # calendar-aware advance (issuer conventions)
+t.days_tenor(date(2024, 1, 31))  # convert to day count from a start date
+```
+
+Units: `y`/`m`/`w`/`d`/`h` for year/month/week/day/hour; `` ` `` = minute;
+```` `` = second.
+
+`NumericTermStructure` maps tenor labels to numeric rates (e.g. repo curves) and
+is used for carry calculations:
+
+```python
+from cheapquant_fi.numeric_term_structure import NumericTermStructure
+
+repo = NumericTermStructure({"1m": 5.25, "3m": 5.10}, as_of=date(2024, 1, 15))
+repo.to_dict()   # ordered by maturity
+repo.filter({"1m", "3m", "6m", "1y"})
+```
+
 ## Curve interpolation methods
 
-Pass `interpolation=ZeroInterp.<METHOD>` to `build_zero_curve` / `price_cmts_from_rates`.
+Pass `interpolation=QLZeroInterp.<METHOD>` to `ql_build_zero_curve` /
+`price_cmts_from_rates` (see `quantlib/quantlib_curve.py`).
 
 | Family | Members | Rate type |
 |--------|---------|-----------|
@@ -142,41 +287,97 @@ Pass `interpolation=ZeroInterp.<METHOD>` to `build_zero_curve` / `price_cmts_fro
 ## Architecture
 
 ```
-ycs_data.duckdb/sqlite (read-only)          QuantLib (e.g. CMT pricing)
-        │                                    │
-        │                                    ▼
-        │                          framecache SQLiteBackend
-        │                                    │
-        └──────── mcp-data agent ────────────┤
-                 (input: / cache:)           │
-                                             ▼
-                                    cmt_prices / calculation_log
-                                    (LLM-queryable tables)
-                                             │
-                        ┌────────────────────┴────────────────────┐
-                        ▼                                         ▼
-                   cqfi (CLI)                             cqfi-gui (GUI)
-                  terminal REPL                      PySide6 ChatDialog window
+┌──────────────────────────────────────────────────────────────────────────┐
+│                         User (cqfi / cqfi-gui)                           │
+└─────────────────────────────────┬────────────────────────────────────────┘
+                                  │
+          ┌───────────────────────┼───────────────────────┐
+          ▼                       ▼                       ▼
+   Direct commands          LLM agent              Rule-based SQL
+   (price cmt, /mctx,       (mcp-data +            (tables, schema,
+    /bond, save/load)       extra tools)            sql: SELECT …)
+          │                       │                       │
+          └───────────────────────┼───────────────────────┘
+                                  ▼
+                         ┌────────────────┐
+                         │  Query router  │  input / cache / bond_analytics
+                         └────────┬───────┘
+                                  │
+     ┌────────────────────────────┼────────────────────────────┐
+     ▼                            ▼                            ▼
+ ycs_data.duckdb            bond_analytics.duckdb         active_cache.db
+ (zero/par/FX rates)        (bond_universe,               (framecache +
+                             bond_analytics,                cmt_prices,
+                             cmt_analytics)                 calculation_log)
+     │                            │                            │
+     └──────────────┬─────────────┴──────────────┬─────────────┘
+                    ▼                            ▼
+         QuantlibMarketContextManager    CacheManager (sessions)
+                    │
+                    ▼
+         QuantLibAnalyticsCalculator
+         (curves, CMT pricing, bond analytics)
 ```
+
+**Key design points:**
+
+- **`AppSettings`** (`config.py`) resolves all paths from `cqfi.yaml` + env
+  overrides and registers MCP datasets with routing keywords.
+
+- **`QuantlibMarketContextManager`** is a singleton. Calling `get(as_of, issuer)`
+  lazily builds missing curves from `ycs_data` via `load_curve_rates` and
+  `ql_build_zero_curve`.
+
+- **`BondManager`** is a singleton lazy-loader over `bond_universe`.
+
+- **`AnalyticsCalculator`** protocol (`analytics_calculator.py`) separates typed
+  I/O (`BondAnalyticsInput`, `FixedIncomeAnalyticsOutput`) from the QuantLib
+  implementation (`QuantLibAnalyticsCalculator`).
+
+- **Semantics YAML** (`semantics/`) describes each database for mcp-data so the
+  LLM can plan SQL without hard-coded schema knowledge.
+
+Additional datasets can be registered in `cqfi.yaml` under a top-level
+`datasets:` block — no code changes required.
 
 ## Project layout
 
 ```
 src/cheapquant_fi/
-  config.py              — YAML path configuration
-  issuers.py             — sovereign conventions (19 issuers)
-  ycs_tenors.py          — pillar column mapping
-  data/rates_loader.py   — read zero/par rates from ycs_data.db
-  quantlib/curve.py      — yield curve construction (ZeroInterp enum)
-  quantlib/cmt.py        — CMT pricing
-  cache/manager.py       — framecache + session save/load
-  cache/registry.py      — flattened SQL tables for LLM queries
-  agent/cli.py           — CLI REPL entry point (cqfi)
-  gui/app.py             — GUI entry point (cqfi-gui)
-  gui/chat_dialog.py     — ChatDialog window (chat + table + plot)
-config/cqfi.yaml           — path and settings configuration (CLI + GUI)
-semantics/quant_cache.yaml — semantic profile for cached results
-.vscode/launch.json        — Cursor/VS Code debug configurations
+  config.py                         — YAML path configuration, AppSettings
+  issuers.py                        — 19 sovereign IssuerProfile conventions
+  instruments.py                    — Bond dataclass (from bond_universe rows)
+  bond_manager.py                   — singleton bond lookup cache
+  tenor.py                          — Tenor parse/simplify/calendar math
+  numeric_term_structure.py         — tenor → rate mappings (repo curves, etc.)
+  ycs_tenors.py                     — YCS pillar column labels (6M, 1Y, …)
+  analytics_input.py                — BondAnalyticsInput, CmtAnalyticsInput
+  analytics_output.py               — FixedIncomeAnalyticsOutput
+  analytics_calculator.py           — AnalyticsCalculator protocol
+  cli_tools.py                      — get_bond, check_market_context LLM tools
+  agent/
+    cli.py                          — cqfi REPL entry point
+    planner.py                      — rule/LLM query planning, /bond /mctx routing
+  quantlib/
+    quantlib_curve.py               — curve construction (QLZeroInterp enum)
+    quantlib_market_context.py      — curve collections, FX, context builder
+    quantlib_market_context_manager.py — singleton context registry
+    quantlib_analytics_calculator.py   — QuantLib analytics implementation
+    cmt.py                          — CMT pricing
+  data/
+    rates_loader.py                 — read zero/par rates from ycs_data
+    create_bond_analytics_db.py     — build/populate bond_analytics DB
+  cache/
+    manager.py                      — framecache + session save/load
+    registry.py                     — flattened SQL tables for LLM queries
+  gui/
+    app.py                          — cqfi-gui entry point
+    chat_dialog.py                  — chat + result rendering
+config/cqfi.yaml                    — shared path/settings config
+semantics/
+  ycs_data.yaml                     — ycs_data schema vocabulary
+  bond_analytics.yaml               — bond analytics DB schema
+  quant_cache.yaml                  — cache table schema
 ```
 
 ## Debug configurations (Cursor / VS Code)
@@ -195,7 +396,9 @@ Five launch profiles are defined in `.vscode/launch.json`:
 
 Local editable packages (via `pyproject.toml` `[tool.uv.sources]`):
 
-- `uv add git+https://github.com/FulgentMcGuffin/framecache.git`
-- `uv add git+https://github.com/FulgentMcGuffin/mcp_data.git`
+- [framecache](https://github.com/FulgentMcGuffin/framecache) — SQLite-backed result caching
+- [mcp-data](https://github.com/FulgentMcGuffin/mcp_data) — natural-language SQL planning
+- [decorules](https://github.com/FulgentMcGuffin/decorules) — declarative validation decorators
 
-PyPI: `QuantLib`, `polars`, `pyside6`, `plotnine`, `pyyaml`, `python-dotenv`
+PyPI: `QuantLib`, `polars`, `pyside6`, `plotnine`, `pyyaml`, `python-dotenv`,
+`duckdb`, `anthropic`
