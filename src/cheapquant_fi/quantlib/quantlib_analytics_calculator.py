@@ -429,25 +429,24 @@ class QuantLibAnalyticsCalculator:
             settlement,
         )
 
-        carry_1m = None
-        carry_3m = None
-        carry_6m = None
-        carry_1y = None
+        _carry_labels = ("1m", "3m", "6m", "1y")
+        _repo_rates: dict[str, float | None] = dict.fromkeys(_carry_labels)
         if repo_term_structure is not None:
-            repo_term_structure = repo_term_structure.filter({"1m", "3m", "6m", "1y"})
-            if len(repo_term_structure) > 0:
-                repo_rates = repo_term_structure.to_dict()
+            filtered = repo_term_structure.filter(set(_carry_labels))
+            if filtered:
+                repo_rates = filtered.to_dict()
+                for label in _carry_labels:
+                    _repo_rates[label] = repo_rates.get(label)
 
-                def _repo_carry(label: str) -> float | None:
-                    repo_rate = repo_rates.get(label)
-                    if repo_rate is None:
-                        return None
-                    return (yld - repo_rate) * 100.0
+        def _carry_from_repo(rate: float | None) -> float | None:
+            return (yld - rate) * 100.0 if rate is not None else None
 
-                carry_1m = _repo_carry("1m")
-                carry_3m = _repo_carry("3m")
-                carry_6m = _repo_carry("6m")
-                carry_1y = _repo_carry("1y")
+        carry_1m, carry_3m, carry_6m, carry_1y = (
+            _carry_from_repo(_repo_rates[label]) for label in _carry_labels
+        )
+        repo_rate_1m, repo_rate_3m, repo_rate_6m, repo_rate_1y = (
+            _repo_rates[label] for label in _carry_labels
+        )
 
         z_spread_bps = None
         par_yield = None
@@ -543,6 +542,10 @@ class QuantLibAnalyticsCalculator:
             roll_3m_fwdyield=roll_3m_fwdyield,
             roll_6m_fwdyield=roll_6m_fwdyield,
             roll_1y_fwdyield=roll_1y_fwdyield,
+            repo_rate_1m=repo_rate_1m,
+            repo_rate_3m=repo_rate_3m,
+            repo_rate_6m=repo_rate_6m,
+            repo_rate_1y=repo_rate_1y,
             carry_1m=carry_1m,
             carry_3m=carry_3m,
             carry_6m=carry_6m,
