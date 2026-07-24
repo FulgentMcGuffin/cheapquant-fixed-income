@@ -87,7 +87,16 @@ class QuantLibAnalyticsCalculator:
         market: QuantlibMarketContext = None,
         *,
         curve_label: str = "BOND_ZERO",
-    ) -> FixedIncomeAnalyticsOutput:
+    ) -> tuple[FixedIncomeAnalyticsOutput, FixedIncomeAnalyticsOutput | None, FixedIncomeAnalyticsOutput | None]:
+        """Return bond analytics and optional maturity-matched CMT analytics and optional maturity-matched fixed-coupon CMT analytics from input.
+
+        The CMT uses the bond's settlement and maturity, the bond's curve
+        ``par_yield`` as coupon, and :meth:`IssuerProfile.as_unadjusted`
+        conventions (no holiday calendar / no payment-date adjustment / no ex-dividend adjustment).
+        
+        The fixed-coupon CMT uses the bond's settlement and maturity, the input coupon as the bond's coupon, and :meth:`IssuerProfile.as_unadjusted`
+        conventions (no holiday calendar / no payment-date adjustment / no ex-dividend adjustment).
+        """
         issuer = resolve_issuer(request.issuer)
         settlement = _to_ql_date(request.settlement_date)
         ql.Settings.instance().evaluationDate = settlement
@@ -98,64 +107,57 @@ class QuantLibAnalyticsCalculator:
 
         if use_curve:
             qlbond.setPricingEngine(ql.DiscountingBondEngine(curve_handle))
+            maturity = _to_ql_date(request.maturity_date)
             metrics = self._bond_metrics_from_priced_bond(
                 qlbond,
                 issuer,
                 settlement,
                 curve_handle=curve_handle,
                 issue_date=_to_ql_date(request.issue_date or request.settlement_date),
-                maturity_date=_to_ql_date(request.maturity_date),
+                maturity_date=maturity,
                 coupon_pct=request.coupon,
                 face_amount=request.face_amount,
                 repo_term_structure=request.repo_term_structure,
             )
-        else:
-            metrics = self._bond_metrics_from_input(
-                qlbond, issuer, settlement, request.input_column, request.input_value
-            )
+            cmt_metrics = None
+            if metrics.par_yield is not None:
+                cmt_issuer = issuer.as_unadjusted()
+                cmt_bond = self._build_maturity_matched_cmt(
+                    cmt_issuer,
+                    settlement,
+                    maturity,
+                    metrics.par_yield,
+                    face_amount=request.face_amount,
+                )
+                cmt_bond.setPricingEngine(ql.DiscountingBondEngine(curve_handle))
+                cmt_metrics = self._bond_metrics_from_priced_bond(
+                    cmt_bond,
+                    cmt_issuer,
+                    settlement,
+                    curve_handle=curve_handle,
+                    issue_date=settlement,
+                    maturity_date=maturity,
+                    coupon_pct=metrics.par_yield,
+                    face_amount=request.face_amount,
+                    repo_term_structure=None,
+                )
+                fc_cmt_metrics = self._bond_metrics_from_input(
+                    cmt_bond,
+                    cmt_issuer,
+                    settlement,
+                    curve_handle=curve_handle,
+                    issue_date=settlement,
+                    maturity_date=maturity,
+                    coupon_pct=request.coupon,
+                    face_amount=request.face_amount,
+                    repo_term_structure=None,
+                )                
+            return metrics, cmt_metrics, fc_cmt_metrics
 
-        return metrics
-
-    def compute_cmt_analytics(
-        self,
-        request: CmtAnalyticsInput,
-        market: QuantlibMarketContext = None,
-        *,
-        curve_label: str = "BOND_ZERO",
-    ) -> FixedIncomeAnalyticsOutput:
-        issuer = resolve_issuer(request.issuer)
-        settlement = _to_ql_date(request.settlement_date)
-        ql.Settings.instance().evaluationDate = settlement
-
-        tenor_years = _tenor_label_to_years(request.tenor_label)
-        bond = self._build_cmt(issuer, settlement, tenor_years, request.coupon)
-        has_coupon = request.coupon is not None
-        curve_handle = self._bond_curve(market, issuer.source_code, curve_label)
-        use_curve = self._uses_curve(request)
-
-        if use_curve:
-            bond.setPricingEngine(ql.DiscountingBondEngine(curve_handle))
-            return self._bond_metrics_from_priced_bond(
-                bond,
-                issuer,
-                settlement,
-                curve_handle=curve_handle,
-                include_accrued=has_coupon,
-                issue_date=settlement,
-                maturity_date=bond.maturityDate(),
-                coupon_pct=request.coupon,
-                face_amount=100.0,
-                zero_coupon=not has_coupon,
-            )
-
-        return self._bond_metrics_from_input(
-            bond,
-            issuer,
-            settlement,
-            request.input_column,
-            request.input_value,
-            include_accrued=has_coupon,
+        metrics = self._bond_metrics_from_input(
+            qlbond, issuer, settlement, request.input_column, request.input_value
         )
+        return metrics, None, None
 
     def _uses_curve(self, request: BondAnalyticsInput | CmtAnalyticsInput) -> bool:
         if request.input_column is None:
@@ -180,17 +182,17 @@ class QuantLibAnalyticsCalculator:
         request: BondAnalyticsInput,
     ) -> ql.FixedRateBond:
         calendar = issuer.calendar()
+        convention = issuer.payment_convention
         issue = _to_ql_date(request.issue_date or request.settlement_date)
         maturity = _to_ql_date(request.maturity_date)
-        settlement = _to_ql_date(request.settlement_date)
 
         schedule = ql.Schedule(
             issue,
             maturity,
             ql.Period(issuer.frequency),
             calendar,
-            ql.ModifiedFollowing,
-            ql.ModifiedFollowing,
+            convention,
+            convention,
             ql.DateGeneration.Backward,
             False,
         )
@@ -210,13 +212,11 @@ class QuantLibAnalyticsCalculator:
         calendar = issuer.calendar()
         if tenor_years < 1.0:
             days = int(round(tenor_years * 365))
-            return calendar.advance(
-                settlement, days, ql.Days, ql.ModifiedFollowing
-            )
+            return calendar.advance(settlement, days, ql.Days, issuer.payment_convention)
         return calendar.advance(
             settlement,
             ql.Period(int(round(tenor_years * 12)), ql.Months),
-            ql.ModifiedFollowing,
+            issuer.payment_convention,
         )
 
     def _build_cmt(
@@ -228,6 +228,7 @@ class QuantLibAnalyticsCalculator:
     ) -> ql.Bond:
         """Build a zero-coupon or fixed-coupon synthetic CMT."""
         calendar = issuer.calendar()
+        convention = issuer.payment_convention
         maturity = self._cmt_maturity(issuer, settlement, tenor_years)
 
         if coupon is None:
@@ -236,7 +237,7 @@ class QuantLibAnalyticsCalculator:
                 calendar,
                 100.0,
                 maturity,
-                ql.ModifiedFollowing,
+                convention,
                 100.0,
                 settlement,
             )
@@ -246,14 +247,47 @@ class QuantLibAnalyticsCalculator:
             maturity,
             ql.Period(issuer.frequency),
             calendar,
-            ql.ModifiedFollowing,
-            ql.ModifiedFollowing,
+            convention,
+            convention,
             ql.DateGeneration.Backward,
             False,
         )
         return issuer.make_QL_fixed_rate_bond(
             schedule,
             [coupon / 100.0],
+            issue_date=settlement,
+        )
+
+    def _build_maturity_matched_cmt(
+        self,
+        issuer: IssuerProfile,
+        settlement: ql.Date,
+        maturity: ql.Date,
+        coupon_pct: float,
+        *,
+        face_amount: float = 100.0,
+    ) -> ql.FixedRateBond:
+        """Build a fixed-coupon CMT with the bond's maturity and settlement.
+
+        *issuer* should normally be :meth:`IssuerProfile.as_unadjusted` so coupon
+        dates are not business-day adjusted.
+        """
+        calendar = issuer.calendar()
+        convention = issuer.payment_convention
+        schedule = ql.Schedule(
+            settlement,
+            maturity,
+            ql.Period(issuer.frequency),
+            calendar,
+            convention,
+            convention,
+            ql.DateGeneration.Backward,
+            False,
+        )
+        return issuer.make_QL_fixed_rate_bond(
+            schedule,
+            [coupon_pct / 100.0],
+            redemption=face_amount,
             issue_date=settlement,
         )
 
@@ -269,13 +303,14 @@ class QuantLibAnalyticsCalculator:
         zero_coupon: bool,
     ) -> ql.Bond:
         calendar = issuer.calendar()
+        convention = issuer.payment_convention
         if zero_coupon or coupon_pct is None:
             return ql.ZeroCouponBond(
                 issuer.settlement_days,
                 calendar,
                 face_amount,
                 maturity,
-                ql.ModifiedFollowing,
+                convention,
                 face_amount,
                 settlement,
             )
@@ -285,8 +320,8 @@ class QuantLibAnalyticsCalculator:
             maturity,
             ql.Period(issuer.frequency),
             calendar,
-            ql.ModifiedFollowing,
-            ql.ModifiedFollowing,
+            convention,
+            convention,
             ql.DateGeneration.Backward,
             False,
         )
@@ -448,17 +483,12 @@ class QuantLibAnalyticsCalculator:
             _repo_rates[label] for label in _carry_labels
         )
 
-        z_spread_bps = None
-        par_yield = None
-        zero_rate = None
-        roll_1m_spotyield = None
-        roll_3m_spotyield = None
-        roll_6m_spotyield = None
-        roll_1y_spotyield = None
-        roll_1m_fwdyield = None
-        roll_3m_fwdyield = None
-        roll_6m_fwdyield = None
-        roll_1y_fwdyield = None
+        z_spread_bps = par_yield = zero_rate = None
+        rolls = {
+            f"roll_{label}_{kind}": None
+            for label in _carry_labels
+            for kind in ("spotyield", "fwdyield")
+        }
         if curve_handle is not None:
             curve = curve_handle.currentLink()
             z_spread_bps = (
@@ -471,7 +501,6 @@ class QuantLibAnalyticsCalculator:
                 )
                 * 10_000.0
             )
-            par_yield = None
             if not zero_coupon and coupon_pct not in (None, 0.0):
                 par_yield = (
                     ql.BondFunctions.atmRate(
@@ -493,34 +522,33 @@ class QuantLibAnalyticsCalculator:
             )
             maturity = maturity_date or bond.maturityDate()
             if issue_date is not None and maturity > bond_settlement:
-                roll_values = self._compute_yield_rolls(
-                    yld * 100.0,
-                    issuer,
-                    bond_settlement,
-                    issue_date,
-                    maturity,
-                    curve_handle,
-                    coupon_pct=coupon_pct,
-                    face_amount=face_amount,
-                    zero_coupon=zero_coupon,
+                rolls.update(
+                    self._compute_yield_rolls(
+                        yld * 100.0,
+                        issuer,
+                        bond_settlement,
+                        issue_date,
+                        maturity,
+                        curve_handle,
+                        coupon_pct=coupon_pct,
+                        face_amount=face_amount,
+                        zero_coupon=zero_coupon,
+                    )
                 )
-                roll_1m_spotyield = roll_values["roll_1m_spotyield"]
-                roll_3m_spotyield = roll_values["roll_3m_spotyield"]
-                roll_6m_spotyield = roll_values["roll_6m_spotyield"]
-                roll_1y_spotyield = roll_values["roll_1y_spotyield"]
-                roll_1m_fwdyield = roll_values["roll_1m_fwdyield"]
-                roll_3m_fwdyield = roll_values["roll_3m_fwdyield"]
-                roll_6m_fwdyield = roll_values["roll_6m_fwdyield"]
-                roll_1y_fwdyield = roll_values["roll_1y_fwdyield"]
-        
-        carry_roll_1m_spotyield = carry_1m - roll_1m_spotyield if carry_1m is not None and roll_1m_spotyield is not None else None
-        carry_roll_3m_spotyield = carry_3m - roll_3m_spotyield if carry_3m is not None and roll_3m_spotyield is not None else None
-        carry_roll_6m_spotyield = carry_6m - roll_6m_spotyield if carry_6m is not None and roll_6m_spotyield is not None else None
-        carry_roll_1y_spotyield = carry_1y - roll_1y_spotyield if carry_1y is not None and roll_1y_spotyield is not None else None
-        carry_roll_1m_fwdyield = carry_1m - roll_1m_fwdyield if carry_1m is not None and roll_1m_fwdyield is not None else None
-        carry_roll_3m_fwdyield = carry_3m - roll_3m_fwdyield if carry_3m is not None and roll_3m_fwdyield is not None else None
-        carry_roll_6m_fwdyield = carry_6m - roll_6m_fwdyield if carry_6m is not None and roll_6m_fwdyield is not None else None
-        carry_roll_1y_fwdyield = carry_1y - roll_1y_fwdyield if carry_1y is not None and roll_1y_fwdyield is not None else None
+
+        _carries = dict(
+            zip(_carry_labels, (carry_1m, carry_3m, carry_6m, carry_1y), strict=True)
+        )
+        carry_rolls = {
+            f"carry_roll_{label}_{kind}": (
+                _carries[label] - rolls[f"roll_{label}_{kind}"]
+                if _carries[label] is not None
+                and rolls[f"roll_{label}_{kind}"] is not None
+                else None
+            )
+            for label in _carry_labels
+            for kind in ("spotyield", "fwdyield")
+        }
 
         return FixedIncomeAnalyticsOutput(
             yield_to_maturity=yld * 100.0,
@@ -530,18 +558,12 @@ class QuantLibAnalyticsCalculator:
             duration=macaulay,
             convexity=convexity,
             dv01_sensitivity=bpv,
-            gamma_sensitivity=convexity * clean / 100.0 if convexity is not None else None,
+            gamma_sensitivity=(
+                convexity * clean / 100.0 if convexity is not None else None
+            ),
             z_spread=z_spread_bps,
             par_yield=par_yield,
             zero_rate=zero_rate,
-            roll_1m_spotyield=roll_1m_spotyield,
-            roll_3m_spotyield=roll_3m_spotyield,
-            roll_6m_spotyield=roll_6m_spotyield,
-            roll_1y_spotyield=roll_1y_spotyield,
-            roll_1m_fwdyield=roll_1m_fwdyield,
-            roll_3m_fwdyield=roll_3m_fwdyield,
-            roll_6m_fwdyield=roll_6m_fwdyield,
-            roll_1y_fwdyield=roll_1y_fwdyield,
             repo_rate_1m=repo_rate_1m,
             repo_rate_3m=repo_rate_3m,
             repo_rate_6m=repo_rate_6m,
@@ -550,14 +572,8 @@ class QuantLibAnalyticsCalculator:
             carry_3m=carry_3m,
             carry_6m=carry_6m,
             carry_1y=carry_1y,
-            carry_roll_1m_spotyield=carry_roll_1m_spotyield,
-            carry_roll_3m_spotyield=carry_roll_3m_spotyield,
-            carry_roll_6m_spotyield=carry_roll_6m_spotyield,
-            carry_roll_1y_spotyield=carry_roll_1y_spotyield,
-            carry_roll_1m_fwdyield=carry_roll_1m_fwdyield,
-            carry_roll_3m_fwdyield=carry_roll_3m_fwdyield,
-            carry_roll_6m_fwdyield=carry_roll_6m_fwdyield,
-            carry_roll_1y_fwdyield=carry_roll_1y_fwdyield,
+            **rolls,
+            **carry_rolls,
         )
 
     def _bond_metrics_from_input(
@@ -583,9 +599,7 @@ class QuantLibAnalyticsCalculator:
 
         if input_column == "yield_to_maturity":
             yld = input_value / 100.0
-            clean = ql.BondFunctions.cleanPrice(
-                bond, yld, dc, comp, freq, settlement
-            )
+            clean = ql.BondFunctions.cleanPrice(bond, yld, dc, comp, freq, settlement)
         else:
             clean = input_value
             yld = ql.BondFunctions.bondYield(
@@ -603,12 +617,8 @@ class QuantLibAnalyticsCalculator:
         macaulay = ql.BondFunctions.duration(
             bond, yld, dc, comp, freq, ql.Duration.Macaulay, settlement
         )
-        convexity = ql.BondFunctions.convexity(
-            bond, yld, dc, comp, freq, settlement
-        )
-        bpv = ql.BondFunctions.basisPointValue(
-            bond, yld, dc, comp, freq, settlement
-        )
+        convexity = ql.BondFunctions.convexity(bond, yld, dc, comp, freq, settlement)
+        bpv = ql.BondFunctions.basisPointValue(bond, yld, dc, comp, freq, settlement)
 
         return FixedIncomeAnalyticsOutput(
             yield_to_maturity=yld * 100.0,
@@ -618,5 +628,7 @@ class QuantLibAnalyticsCalculator:
             duration=macaulay,
             convexity=convexity,
             dv01_sensitivity=bpv,
-            gamma_sensitivity=convexity * clean / 100.0 if convexity is not None else None,
+            gamma_sensitivity=(
+                convexity * clean / 100.0 if convexity is not None else None
+            ),
         )

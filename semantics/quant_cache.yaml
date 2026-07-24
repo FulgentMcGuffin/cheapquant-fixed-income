@@ -1,15 +1,16 @@
-# Semantic profile for the QuantLib analytics cache (active_cache.db).
+# Semantic profile for the QuantLib analytics cache (defined as quant_cache_db in cqfi.yaml).
 #
-# Flattened pricing outputs live in cmt_prices; calculation_log tracks each
-# cached QuantLib run. Raw serialized frames remain in framecache tables
-# (cache_entries, cache_hashes) and are not meant for direct SQL analysis.
+# Caching Analytic Output objects (like FixedIncomeAnalyticsOutput) live into a (in-memory) database; 
+# calculation_log tracks each cached QuantLib run. 
+# cache_id's are not meant for direct SQL analysis but bond_id and user_friendly_id are.
 
 dataset: quant_cache
 backend: sqlite
 description: >
-  Cached QuantLib fixed-income analytics. cmt_prices holds constant-maturity
-  treasury (CMT) zero-coupon bond prices and yields per issuer, valuation
-  date, and tenor. calculation_log indexes each cached function invocation.
+  Cached QuantLib for fixed-income analytics. 
+  bond_analytics holds fixed-income bond analytic results (like price, yield, duration, convexity, settlement_date, etc.)
+  cmt_analytics holds constant-maturity treasury (CMT) analytic results (like price, yield, duration, convexity, settlement_date, etc.)  
+  calculation_log indexes each cached function invocation.
   Use this dataset to inspect pricing runs performed in the current session.
 
 vocabulary:
@@ -21,7 +22,6 @@ vocabulary:
     United Kingdom: GBR
     UK: GBR
     Japan: JPN
-
     Australia: AUS
     Austria: AUT
     Belgium: BEL
@@ -52,6 +52,13 @@ vocabulary:
     Saudi Arabia: SAU
     Singapore: SGP
     Sweden: SWE
+    Norway: NOR
+    New Zealand: NZL
+    Israel: ISR
+    Iceland: ISL
+    Indonesia: IDN
+    Iran: IRN
+    Iraq: IRQ
 
   rate_types:
     zero: zero
@@ -80,23 +87,86 @@ conventions:
     curve_zero_pct are expressed in percent (e.g. 4.25 means 4.25%).
 
 tables:
-  cmt_prices:
-    description: >
-      CMT zero-coupon prices and yields at standard pillar tenors, one row per
-      (issuer, valuation_date, tenor) pricing run.
+  bond_analytics:
+    description: 
+      analytics (price, yield, duration, convexity, etc.) for a particular bond at a particular settlement date using a particular yield curve 
     columns:
-      id: {type: INTEGER, description: "Surrogate key."}
-      cache_id: {type: TEXT, description: "Framecache key for the full result blob."}
-      issuer: {type: TEXT, description: "Country code, e.g. USA, DEU."}
-      valuation_date: {type: TEXT, description: "Curve date (YYYY-MM-DD)."}
-      rate_type: {type: TEXT, description: "'zero' or 'par' input rates used."}
-      tenor_label: {type: TEXT, description: "Human tenor, e.g. 10Y."}
-      tenor_years: {type: REAL, description: "Tenor in years."}
-      input_rate_pct: {type: REAL, description: "Input pillar rate from ycs_data (%)."}
-      curve_zero_pct: {type: REAL, description: "Curve-implied zero at the tenor (%)."}
-      clean_price: {type: REAL, description: "Clean price of the synthetic zero-coupon CMT."}
-      yield_pct: {type: REAL, description: "Bond yield (%)."}
-      created_at: {type: TEXT, description: "UTC timestamp when the run was cached."}
+      analytic_id: {type: TEXT, description: "A unique identifier for the analytics (must be unique per record in the bond_analytics table)"}
+      bond_id: {type: TEXT, description: "A unique identifier for the bond present in the bond_universe table (matches the bond_id column in the bond_universe table)."}
+      created_at: {type: TEXT, description: "UTC timestamp when the analytics were computed."}
+      trade_date: {type: TEXT, description: "the trade date (YYYY-MM-DD) of the trade."}
+      settlement_date: {type: TEXT, description: "the settlement date (YYYY-MM-DD) of the trade."}
+      curve_used: {type: BOOLEAN, description: "1 if the bond curve was used to compute the analytics, 0 otherwise."}
+      curve_settings: {type: TEXT, description: "The settings used on the bond curve to compute the analytics."}
+      input_column: {type: TEXT, description: "The column (e.g. yield_to_maturity,clean_price,etc.) used as an input to compute the analytics. If present, curve_used must be 0."}
+      yield_to_maturity: {type: REAL, description: "Yield to maturity of the bond as a percentage."}
+      par_yield: {type: REAL, description: "Par yield of the bond as a percentage."}
+      zero_rate: {type: REAL, description: "Zero rate at the maturity date of the bond as a percentage."}
+      clean_price: {type: REAL, description: "Clean Price of the bond as a percentage of face value."}
+      dirty_price: {type: REAL, description: "Dirty Price of the bond as a percentage of face value."}
+      accrued_interest: {type: REAL, description: "Accrued interest of the bond as a percentage of face value (dirty price - clean price)."}
+      duration: {type: REAL, description: "Duration of the bond as a percentage (Macaulay duration)."}
+      convexity: {type: REAL, description: "Convexity of the bond as a percentage."}
+      dv01_sensitivity: {type: REAL, description: "Duration sensitivity of the bond as a percentage of face value (DV01)."}
+      gamma_sensitivity: {type: REAL, description: "Dollar convexity sensitivity of the bond as a percentage of face value."}      
+      mm_cmt_analytic_id: {type: TEXT, description: "The cmt_analytic_id of the maturity matched CMT for this bond (matches the cmt_analytic_id column in the cmt_analytics table)."}
+      mm_fc_cmt_analytic_id: {type: TEXT, description: "The cmt_analytic_id of the maturity matched fixed coupon CMT for this bond (matches the cmt_analytic_id column in the cmt_analytics table)."}
+      z_spread: {type: REAL, description: "Z-spread of the bond in basis points (100 basis points = 1%)"}
+      repo_rate_1m: {type: REAL, description: "Repo rate of the bond as a percentage using in the carry calculation for 1 month."}
+      repo_rate_3m: {type: REAL, description: "Repo rate of the bond as a percentage using in the carry calculation for 3 months."}
+      repo_rate_6m: {type: REAL, description: "Repo rate of the bond as a percentage using in the carry calculation for 6 months."}
+      repo_rate_1y: {type: REAL, description: "Repo rate of the bond as a percentage using in the carry calculation for 1 year."}
+      carry_1m: {type: REAL, description: "Carry of the bond as a percentage of face value for 1 month."}
+      carry_3m: {type: REAL, description: "Carry of the bond as a percentage of face value for 3 months."}
+      carry_6m: {type: REAL, description: "Carry of the bond as a percentage of face value for 6 months."}
+      carry_1y: {type: REAL, description: "Carry of the bond as a percentage of face value for 1 year."}
+      roll_1m_spotyield: {type: REAL, description: "Roll of the bond as a percentage of face value for 1 month by comparing the spot yield to maturity of the bond with the yield to maturity of the bond if it matured 1 month earlier."}
+      roll_3m_spotyield: {type: REAL, description: "Roll of the bond as a percentage of face value for 3 months by comparing the spot yield to maturity of the bond with the yield to maturity of the bond if it matured 3 months earlier."}
+      roll_6m_spotyield: {type: REAL, description: "Roll of the bond as a percentage of face value for 6 months by comparing the spot yield to maturity of the bond with the yield to maturity of the bond if it matured 6 months earlier."}
+      roll_1y_spotyield: {type: REAL, description: "Roll of the bond as a percentage of face value for 1 year by comparing the spot yield to maturity of the bond with the yield to maturity of the bond if it matured 1 year earlier."}
+      roll_1m_fwdyield: {type: REAL, description: "Roll of the bond as a percentage of face value for 1 month by comparing the spot yield to maturity of the bond with the forward yield to maturity of the bond 1 month in the future"}
+      roll_3m_fwdyield: {type: REAL, description: "Roll of the bond as a percentage of face value for 3 months by comparing the spot yield to maturity of the bond with the forward yield to maturity of the bond 3 months in the future"}
+      roll_6m_fwdyield: {type: REAL, description: "Roll of the bond as a percentage of face value for 6 months by comparing the spot yield to maturity of the bond with the forward yield to maturity of the bond 6 months in the future"}
+      roll_1y_fwdyield: {type: REAL, description: "Roll of the bond as a percentage of face value for 1 year by comparing the spot yield to maturity of the bond with the forward yield to maturity of the bond 1 year in the future"}
+      carry_roll_1m_spotyield: {type: REAL, description: "Carry roll of the bond as a percentage of face value for 1 month by comparing the spot yield to maturity of the bond with the yield to maturity of the bond if it matured 1 month earlier."}
+      carry_roll_3m_spotyield: {type: REAL, description: "Carry roll of the bond as a percentage of face value for 3 months by comparing the spot yield to maturity of the bond with the yield to maturity of the bond if it matured 3 months earlier."}
+      carry_roll_6m_spotyield: {type: REAL, description: "Carry roll of the bond as a percentage of face value for 6 months by comparing the spot yield to maturity of the bond with the yield to maturity of the bond if it matured 6 months earlier."}
+      carry_roll_1y_spotyield: {type: REAL, description: "Carry roll of the bond as a percentage of face value for 1 year by comparing the spot yield to maturity of the bond with the yield to maturity of the bond if it matured 1 year earlier."}
+      carry_roll_1m_fwdyield: {type: REAL, description: "Carry roll of the bond as a percentage of face value for 1 month by comparing the spot yield to maturity of the bond with the forward yield to maturity of the bond 1 month in the future"}
+      carry_roll_3m_fwdyield: {type: REAL, description: "Carry roll of the bond as a percentage of face value for 3 months by comparing the spot yield to maturity of the bond with the forward yield to maturity of the bond 3 months in the future"}
+      carry_roll_6m_fwdyield: {type: REAL, description: "Carry roll of the bond as a percentage of face value for 6 months by comparing the spot yield to maturity of the bond with the forward yield to maturity of the bond 6 months in the future"}
+      carry_roll_1y_fwdyield: {type: REAL, description: "Carry roll of the bond as a percentage of face value for 1 year by comparing the spot yield to maturity of the bond with the forward yield to maturity of the bond 1 year in the future"}
+      asw_spread_1m: {type: REAL, description: "ASW spread of the bond as a percentage of face value for 1 month."}
+      asw_spread_3m: {type: REAL, description: "ASW spread of the bond as a percentage of face value for 3 months."}
+      asw_spread_6m: {type: REAL, description: "ASW spread of the bond as a percentage of face value for 6 months."}
+      asw_spread_1y: {type: REAL, description: "ASW spread of the bond as a percentage of face value for 1 year."}
+  cmt_analytics:
+    description: >
+      analytics (price, yield, duration, convexity, etc.) for a particular CMT tenor or maturity at a particular settlement date using a particular yield curve or supplied input yield or input price      
+    columns:
+      cmt_analytic_id: {type: TEXT, description: "A unique identifier for the CMT analytics (must be unique per record in the cmt_analytics table)"}
+      issuer: {type: TEXT, description: "Country code, e.g. USA, DEU. these match the issuers dictionary in the vocabulary."}
+      tenor_label: {type: TEXT, description: "The tenor label (6M, 1Y, ..., 30Y) from the tenor_pillars table columns"}
+      created_at: {type: TEXT, description: "UTC timestamp when the analytics were computed."}
+      trade_date: {type: TEXT, description: "the trade date (YYYY-MM-DD) of the trade."}
+      settlement_date: {type: TEXT, description: "the settlement date (YYYY-MM-DD) of the trade."}
+      coupon: {type: REAL, description: "Coupon rate as a percentage."}
+      is_fixed_coupon: {type: BOOLEAN, description: "1 if the CMT is a fixed coupon CMT, 0 otherwise."}
+      maturity_date: {type: TEXT, description: "the maturity date (YYYY-MM-DD) of the CMT."}
+      curve_used: {type: BOOLEAN, description: "1 if the bond curve was used to compute the analytics, 0 otherwise."}
+      curve_settings: {type: TEXT, description: "The settings used on the (bond) curve to compute the analytics of the CMT"}
+      input_column: {type: TEXT, description: "The column (e.g. yield_to_maturity,clean_price,etc.) used as an input to compute the analytics. If present, curve_used must be 0."}
+      yield_to_maturity: {type: REAL, description: "Yield to maturity of the CMT as a percentage."}
+      clean_price: {type: REAL, description: "Clean Price of the CMT as a percentage of face value."}
+      duration: {type: REAL, description: "Duration of the CMT as a percentage (Macaulay duration)."}
+      convexity: {type: REAL, description: "Convexity of the CMT as a percentage."}
+      dv01_sensitivity: {type: REAL, description: "Duration sensitivity of the CMT as a percentage of face value (DV01)."}
+      gamma_sensitivity: {type: REAL, description: "Dollar convexity sensitivity of the CMT as a percentage of face value."}
+      asw_spread_1m: {type: REAL, description: "ASW spread of the CMT as a percentage of face value for 1 month."}
+      asw_spread_3m: {type: REAL, description: "ASW spread of the CMT as a percentage of face value for 3 months."}
+      asw_spread_6m: {type: REAL, description: "ASW spread of the CMT as a percentage of face value for 6 months."}
+      asw_spread_1y: {type: REAL, description: "ASW spread of the CMT as a percentage of face value for 1 year."}
+
   calculation_log:
     description: >
       One row per cached QuantLib function call (currently price_cmts).
@@ -109,6 +179,7 @@ tables:
       rate_type: {type: TEXT, description: "zero or par when applicable."}
       row_count: {type: INTEGER, description: "Number of result rows stored."}
       created_at: {type: TEXT, description: "UTC timestamp."}
+
   cache_entries:
     description: >
       Raw framecache blob store (serialized polars/numpy). Prefer cmt_prices for
@@ -122,17 +193,23 @@ tables:
 examples:
   - q: "What 10Y CMT clean prices did we compute for US Treasuries?"
     sql: >
-      SELECT valuation_date, clean_price, yield_pct
-      FROM cmt_prices
-      WHERE issuer = 'USA' AND tenor_label = '10Y'
-      ORDER BY valuation_date
+      SELECT trade_date, clean_price, yield_to_maturity
+      FROM cmt_analytics
+      WHERE issuer = 'USA' AND tenor_label = '10y' AND is_fixed_coupon = 0
+      ORDER BY trade_date
   - q: "Latest German CMT pricing run"
     sql: >
       SELECT *
-      FROM cmt_prices
+      FROM cmt_analytics
       WHERE issuer = 'DEU'
-      ORDER BY created_at DESC
+      ORDER BY trade_date DESC
       LIMIT 13
   - q: "How many pricing runs are in this session?"
     sql: >
       SELECT COUNT(*) AS run_count FROM calculation_log
+  - q: "What is the yield of French bonds that mature 10Y from now?"
+    sql: >
+      SELECT AVG(yield_to_maturity)
+      FROM bond_analytics
+      WHERE issuer = 'FRA' AND CAST((julianday(maturity_date) - julianday(CURRENT_DATE)) / 365.25 AS INTEGER) BETWEEN 9 AND 11
+      AND trade_date = (SELECT MAX(trade_date) FROM bond_analytics WHERE issuer = 'FRA');

@@ -1,4 +1,4 @@
-"""Tests for QuantLibAnalyticsCalculator and its helpers."""
+﻿"""Tests for QuantLibAnalyticsCalculator and its helpers."""
 
 from __future__ import annotations
 
@@ -154,12 +154,12 @@ def test_uses_curve_true_by_default(calculator: QuantLibAnalyticsCalculator):
 
 
 # ---------------------------------------------------------------------------
-# Bond analytics — curve-priced path
+# Bond analytics â€” curve-priced path
 # ---------------------------------------------------------------------------
 
 
 def test_bond_curve_pricing_populates_core_metrics(deu_market, calculator):
-    result = calculator.compute_bond_analytics(_bond_request(), deu_market)
+    result, _ = calculator.compute_bond_analytics(_bond_request(), deu_market)
 
     assert result.yield_to_maturity is not None
     assert result.clean_price is not None
@@ -179,7 +179,7 @@ def test_bond_curve_pricing_populates_core_metrics(deu_market, calculator):
 
 
 def test_bond_curve_pricing_populates_curve_metrics(deu_market, calculator):
-    result = calculator.compute_bond_analytics(_bond_request(), deu_market)
+    result, _ = calculator.compute_bond_analytics(_bond_request(), deu_market)
 
     assert result.z_spread is not None
     assert result.par_yield is not None
@@ -189,7 +189,7 @@ def test_bond_curve_pricing_populates_curve_metrics(deu_market, calculator):
 
 
 def test_par_bond_on_flat_curve_has_near_zero_z_spread(deu_flat_market, calculator):
-    result = calculator.compute_bond_analytics(
+    result, _ = calculator.compute_bond_analytics(
         _bond_request(coupon=_FLAT_RATE_PCT),
         deu_flat_market,
     )
@@ -197,7 +197,7 @@ def test_par_bond_on_flat_curve_has_near_zero_z_spread(deu_flat_market, calculat
 
 
 def test_bond_as_json_returns_populated_fields_only(deu_market, calculator):
-    result = calculator.compute_bond_analytics(_bond_request(), deu_market)
+    result, _ = calculator.compute_bond_analytics(_bond_request(), deu_market)
     payload = result.as_dict()
     assert "yield_to_maturity" in payload
     assert "roll_1y_spotyield" in payload
@@ -205,12 +205,12 @@ def test_bond_as_json_returns_populated_fields_only(deu_market, calculator):
 
 
 # ---------------------------------------------------------------------------
-# Bond analytics — input-priced path
+# Bond analytics â€” input-priced path
 # ---------------------------------------------------------------------------
 
 
 def test_bond_input_clean_price(deu_market, calculator):
-    result = calculator.compute_bond_analytics(
+    result, _ = calculator.compute_bond_analytics(
         _bond_request(input_column="clean_price", input_value=98.5),
         deu_market,
     )
@@ -221,7 +221,7 @@ def test_bond_input_clean_price(deu_market, calculator):
 
 def test_bond_input_yield_to_maturity(deu_market, calculator):
     target_ytm = 4.25
-    result = calculator.compute_bond_analytics(
+    result, _ = calculator.compute_bond_analytics(
         _bond_request(input_column="yield_to_maturity", input_value=target_ytm),
         deu_market,
     )
@@ -236,65 +236,12 @@ def test_bond_input_rejects_unknown_column(deu_market, calculator):
 
 
 # ---------------------------------------------------------------------------
-# CMT analytics
-# ---------------------------------------------------------------------------
-
-
-def test_cmt_zero_coupon_curve_pricing(deu_market, calculator):
-    request = CmtAnalyticsInput(
-        issuer="DEU",
-        tenor_label="10Y",
-        settlement_date=_VAL_DATE,
-    )
-    result = calculator.compute_cmt_analytics(request, deu_market)
-
-    assert result.yield_to_maturity is not None
-    assert result.clean_price is not None
-    assert result.accrued_interest is None
-    assert result.par_yield is None
-    assert result.roll_1y_spotyield is not None
-
-
-def test_cmt_fixed_coupon_curve_pricing(deu_market, calculator):
-    request = CmtAnalyticsInput(
-        issuer="DEU",
-        tenor_label="5Y",
-        settlement_date=_VAL_DATE,
-        coupon=3.5,
-    )
-    result = calculator.compute_cmt_analytics(request, deu_market)
-
-    assert result.yield_to_maturity is not None
-    assert result.accrued_interest is not None
-
-
-def test_cmt_input_clean_price(deu_market, calculator):
-    request = CmtAnalyticsInput(
-        issuer="DEU",
-        tenor_label="10Y",
-        settlement_date=_VAL_DATE,
-        input_column="clean_price",
-        input_value=87.5,
-    )
-    result = calculator.compute_cmt_analytics(request, deu_market)
-    assert result.clean_price == pytest.approx(87.5)
-
-
-def test_cmt_build_maturity_short_tenor_under_one_year(calculator):
-    settlement = _to_ql_date(_VAL_DATE)
-    maturity = calculator._cmt_maturity(_DEU, settlement, 0.5)
-    assert maturity > settlement
-    # 6M pillar uses calendar advance on business days, not calendar days.
-    assert maturity <= settlement + 280
-
-
-# ---------------------------------------------------------------------------
 # Yield rolls
 # ---------------------------------------------------------------------------
 
 
 def test_all_roll_horizons_populated_for_long_bond(deu_market, calculator):
-    result = calculator.compute_bond_analytics(_bond_request(), deu_market)
+    result, _ = calculator.compute_bond_analytics(_bond_request(), deu_market)
 
     for field in (
         "roll_1m_spotyield",
@@ -312,14 +259,14 @@ def test_all_roll_horizons_populated_for_long_bond(deu_market, calculator):
 def test_spot_roll_matches_shortened_maturity(deu_market, calculator):
     settlement = _VAL_DATE
     maturity = date(2034, 1, 15)
-    long_result = calculator.compute_bond_analytics(
+    long_result, _ = calculator.compute_bond_analytics(
         _bond_request(maturity=maturity, settlement=settlement),
         deu_market,
     )
     shortened = _from_ql_date(
         _subtract_tenor(_to_ql_date(maturity), Tenor.parse("1y"), _DEU)
     )
-    short_result = calculator.compute_bond_analytics(
+    short_result, _ = calculator.compute_bond_analytics(
         _bond_request(maturity=shortened, settlement=settlement),
         deu_market,
     )
@@ -328,7 +275,7 @@ def test_spot_roll_matches_shortened_maturity(deu_market, calculator):
 
 
 def test_short_maturity_bond_has_no_rolls(deu_market, calculator):
-    result = calculator.compute_bond_analytics(
+    result, _ = calculator.compute_bond_analytics(
         _bond_request(maturity=date(2024, 3, 15)),
         deu_market,
     )
@@ -337,7 +284,7 @@ def test_short_maturity_bond_has_no_rolls(deu_market, calculator):
 
 
 def test_forward_roll_differs_from_spot_roll(deu_market, calculator):
-    result = calculator.compute_bond_analytics(_bond_request(), deu_market)
+    result, _ = calculator.compute_bond_analytics(_bond_request(), deu_market)
     assert result.roll_1y_fwdyield != result.roll_1y_spotyield
 
 
@@ -351,7 +298,7 @@ def test_repo_carry_is_yield_minus_repo_rate(deu_market, calculator):
         {"1m": 3.0, "3m": 3.1, "6m": 3.2, "1y": 3.3},
         as_of=_VAL_DATE,
     )
-    result = calculator.compute_bond_analytics(
+    result, _ = calculator.compute_bond_analytics(
         _bond_request(repo_term_structure=repo),
         deu_market,
     )
@@ -362,7 +309,7 @@ def test_repo_carry_is_yield_minus_repo_rate(deu_market, calculator):
 
 def test_carry_roll_combines_carry_and_roll(deu_market, calculator):
     repo = NumericTermStructure({"1y": 3.0}, as_of=_VAL_DATE)
-    result = calculator.compute_bond_analytics(
+    result, _ = calculator.compute_bond_analytics(
         _bond_request(repo_term_structure=repo),
         deu_market,
     )
@@ -378,7 +325,7 @@ def test_carry_roll_combines_carry_and_roll(deu_market, calculator):
 
 def test_missing_repo_tenors_leave_carry_none(deu_market, calculator):
     repo = NumericTermStructure({"1m": 3.0}, as_of=_VAL_DATE)
-    result = calculator.compute_bond_analytics(
+    result, _ = calculator.compute_bond_analytics(
         _bond_request(repo_term_structure=repo),
         deu_market,
     )
@@ -395,14 +342,14 @@ def test_usa_and_deu_produce_different_yields_on_same_inputs(
     deu_market, usa_market, calculator
 ):
     request = _bond_request(issuer="DEU")
-    deu_result = calculator.compute_bond_analytics(request, deu_market)
+    deu_result, _ = calculator.compute_bond_analytics(request, deu_market)
 
     usa_request = _bond_request(issuer="USA")
-    usa_result = calculator.compute_bond_analytics(usa_request, usa_market)
+    usa_result, _ = calculator.compute_bond_analytics(usa_request, usa_market)
 
     assert deu_result.yield_to_maturity is not None
     assert usa_result.yield_to_maturity is not None
-    # Same curve shape and coupon — day-count / frequency differ slightly.
+    # Same curve shape and coupon â€” day-count / frequency differ slightly.
     assert deu_result.yield_to_maturity == pytest.approx(
         usa_result.yield_to_maturity, abs=0.5
     )
@@ -450,3 +397,63 @@ def test_compute_yield_rolls_returns_all_keys(deu_market, calculator):
         "roll_6m_fwdyield",
         "roll_1y_fwdyield",
     }
+
+
+# ---------------------------------------------------------------------------
+# Maturity-matched fixed-coupon CMT
+# ---------------------------------------------------------------------------
+
+
+def test_issuer_as_unadjusted_uses_null_calendar_and_clears_ex_dividend():
+    unadj = _USA.as_unadjusted()
+    assert isinstance(unadj.calendar(), ql.NullCalendar)
+    assert unadj.payment_convention == ql.Unadjusted
+    assert unadj.ex_dividend is None
+    assert unadj.day_count.name() == _USA.day_count.name()
+    assert unadj.frequency == _USA.frequency
+    assert unadj.settlement_days == _USA.settlement_days
+    # Original profile is unchanged.
+    assert not isinstance(_USA.calendar(), ql.NullCalendar)
+    assert _USA.payment_convention == ql.ModifiedFollowing
+
+
+def test_maturity_matched_cmt_metrics_returned_on_curve_path(deu_market, calculator):
+    bond_metrics, cmt_metrics = calculator.compute_bond_analytics(
+        _bond_request(), deu_market
+    )
+    assert bond_metrics.par_yield is not None
+    assert cmt_metrics is not None
+    assert cmt_metrics.clean_price is not None
+    assert cmt_metrics.yield_to_maturity is not None
+    assert cmt_metrics.duration is not None
+    # Par CMT priced off the same curve should be near 100.
+    assert cmt_metrics.clean_price == pytest.approx(100.0, abs=0.05)
+    assert cmt_metrics.yield_to_maturity == pytest.approx(
+        bond_metrics.par_yield, abs=0.05
+    )
+
+
+def test_maturity_matched_cmt_none_on_input_path(deu_market, calculator):
+    _, cmt_metrics = calculator.compute_bond_analytics(
+        _bond_request(input_column="clean_price", input_value=99.5),
+        deu_market,
+    )
+    assert cmt_metrics is None
+
+
+def test_maturity_matched_cmt_schedule_is_unadjusted(calculator):
+    """Coupon dates that fall on weekends are not shifted."""
+    issuer = _DEU.as_unadjusted()
+    # 2024-01-15 is a Monday; annual DEU coupons → 2025-01-15, …, 2030-01-15.
+    # Pick a maturity so a coupon lands on Saturday 2028-01-15.
+    settlement = ql.Date(15, 1, 2024)
+    maturity = ql.Date(15, 1, 2028)  # Saturday
+    bond = calculator._build_maturity_matched_cmt(
+        issuer, settlement, maturity, coupon_pct=3.5
+    )
+    cashflows = list(bond.cashflows())
+    coupon_dates = [
+        cf.date() for cf in cashflows if not cf.hasOccurred(settlement)
+    ]
+    assert maturity in coupon_dates
+    assert maturity.weekday() == ql.Saturday

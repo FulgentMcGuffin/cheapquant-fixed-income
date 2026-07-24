@@ -259,7 +259,7 @@ def compute_bond_analytics(
         # Compute analytics
         try:
             calculator = QuantLibAnalyticsCalculator()
-            analytics_output = calculator.compute_bond_analytics(
+            analytics_output, _cmt_metrics = calculator.compute_bond_analytics(
                 analytics_input,
                 market_context,
                 curve_label=curve_label,

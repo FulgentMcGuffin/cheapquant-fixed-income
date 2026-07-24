@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import json
 import os
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass, fields
 from pathlib import Path
 from typing import Any
 
@@ -12,6 +13,8 @@ from dotenv import load_dotenv
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_CONFIG_PATH = PROJECT_ROOT / "config" / "cqfi.yaml"
+DEFAULT_RUNTIME_CONFIG_DIR = Path.home() / ".cqfi"
+DEFAULT_RUNTIME_CONFIG_PATH = DEFAULT_RUNTIME_CONFIG_DIR / "cqfi_runtime.json"
 
 load_dotenv(PROJECT_ROOT / ".env", override=False)
 
@@ -35,6 +38,7 @@ def configure_langsmith() -> None:
 configure_langsmith()
 
 _settings: AppSettings | None = None
+_runtime_settings: RuntimeSettings | None = None
 
 
 def _resolve_path(value: str | Path, base: Path = PROJECT_ROOT) -> Path:
@@ -57,6 +61,102 @@ def _parse_bool(value: object) -> bool:
         return value
     text = str(value).strip().lower()
     return text in ("1", "true", "yes", "on")
+
+
+@dataclass
+class RuntimeSettings:
+    """Mutable application settings that can change during a session.
+
+    Persisted under the user home directory at ``~/.cqfi/cqfi_runtime.json``
+    (see :data:`DEFAULT_RUNTIME_CONFIG_PATH`). Path/database locations stay in
+    ``cqfi.yaml``; this file holds session/cache behaviour toggles.
+    """
+
+    use_quant_cache: bool = False
+    save_quant_cache_to_bond_analytics_after_session: bool = False
+    clear_quant_cache_after_session: bool = False
+    restore_quant_cache_at_session_start: bool = False
+
+    def update(self, **kwargs: object) -> None:
+        """Update known fields in place (unknown keys are ignored)."""
+        known = {f.name for f in fields(self)}
+        for key, value in kwargs.items():
+            if key not in known:
+                continue
+            setattr(self, key, _parse_bool(value) if isinstance(getattr(self, key), bool) else value)
+
+    def as_dict(self) -> dict[str, bool]:
+        return asdict(self)
+
+
+def _runtime_defaults() -> RuntimeSettings:
+    return RuntimeSettings()
+
+
+def _resolve_runtime_config_path(path: str | Path | None = None) -> Path:
+    """Resolve the runtime JSON path (default: ``~/.cqfi/cqfi_runtime.json``)."""
+    if path is None:
+        env = os.environ.get("CQFI_RUNTIME_CONFIG")
+        config_path = Path(env) if env else DEFAULT_RUNTIME_CONFIG_PATH
+    else:
+        config_path = Path(path)
+    config_path = config_path.expanduser()
+    if not config_path.is_absolute():
+        config_path = (PROJECT_ROOT / config_path).resolve()
+    return config_path
+
+
+def load_runtime_settings(
+    path: str | Path | None = None,
+    *,
+    create_if_missing: bool = True,
+) -> RuntimeSettings:
+    """Load runtime settings from JSON; create dir/file with all-false defaults if missing."""
+    global _runtime_settings
+    config_path = _resolve_runtime_config_path(path)
+
+    if not config_path.exists():
+        settings = _runtime_defaults()
+        if create_if_missing:
+            config_path.parent.mkdir(parents=True, exist_ok=True)
+            save_runtime_settings(settings, config_path)
+        _runtime_settings = settings
+        return settings
+
+    with config_path.open(encoding="utf-8") as fh:
+        data: dict[str, Any] = json.load(fh) or {}
+    if not isinstance(data, dict):
+        raise ValueError(f"Runtime config {config_path} must be a JSON object.")
+
+    defaults = _runtime_defaults()
+    defaults.update(**data)
+    _runtime_settings = defaults
+    return defaults
+
+
+def save_runtime_settings(
+    settings: RuntimeSettings | None = None,
+    path: str | Path | None = None,
+) -> Path:
+    """Persist runtime settings to JSON and keep the in-memory copy in sync."""
+    global _runtime_settings
+    settings = settings or get_runtime_settings()
+    config_path = _resolve_runtime_config_path(path)
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    with config_path.open("w", encoding="utf-8") as fh:
+        json.dump(settings.as_dict(), fh, indent=2)
+        fh.write("\n")
+    _runtime_settings = settings
+    return config_path
+
+
+def get_runtime_settings() -> RuntimeSettings:
+    """Return the active runtime settings, loading (or creating) the JSON file if needed."""
+    global _runtime_settings
+    if _runtime_settings is None:
+        load_runtime_settings()
+    assert _runtime_settings is not None
+    return _runtime_settings
 
 
 @dataclass(frozen=True)
@@ -100,8 +200,8 @@ class AppSettings:
     bond_analytics_db_path: Path
     bond_analytics_semantics_dir: Path
     bond_analytics_semantics_path: Path
-    cache_db_path: Path
-    cache_semantics_dir: Path
+    quant_cache_db_path: Path
+    quant_cache_semantics_dir: Path
     sessions_dir: Path
     mcp_datasets: dict[str, DatasetConfig]
     write_to_bond_analytics_db: bool = False
@@ -155,8 +255,10 @@ class AppSettings:
         bond_analytics_semantics = _get(
             "bond_analytics_semantics", "CQFI_BOND_ANALYTICS_SEMANTICS"
         )
-        cache_db = _get("cache_db", "CQFI_CACHE_DB")
-        cache_semantics = _get("cache_semantics_dir", "CQFI_CACHE_SEMANTICS")
+        quant_cache_db = _get("quant_cache_db", "CQFI_QUANT_CACHE_DB")
+        quant_cache_semantics = _get(
+            "quant_cache_semantics", "CQFI_QUANT_CACHE_SEMANTICS"
+        )
         sessions = _get("sessions_dir", "CQFI_SESSIONS_DIR")
         write_to_bond_analytics_db = _get_bool(
             "write_to_bond_analytics_db", "CQFI_WRITE_TO_BOND_ANALYTICS_DB"
@@ -169,8 +271,8 @@ class AppSettings:
                 ("ycs_semantics", ycs_semantics),
                 ("bond_analytics_db", bond_analytics_db),
                 ("bond_analytics_semantics", bond_analytics_semantics),
-                ("cache_db", cache_db),
-                ("cache_semantics_dir", cache_semantics),
+                ("quant_cache_db", quant_cache_db),
+                ("quant_cache_semantics", quant_cache_semantics),
                 ("sessions_dir", sessions),
             ]
             if not val
@@ -182,8 +284,8 @@ class AppSettings:
 
         ycs_db_path = _resolve_path(ycs_db)
         bond_analytics_db_path = _resolve_path(bond_analytics_db)
-        cache_db_path = _resolve_path(cache_db)
-        cache_semantics_dir = _resolve_path(cache_semantics)
+        quant_cache_db_path = _resolve_path(quant_cache_db)
+        quant_cache_semantics_dir = _semantics_dir_from_value(quant_cache_semantics)
         bond_analytics_semantics_dir = _semantics_dir_from_value(bond_analytics_semantics)
         bond_analytics_semantics_path = _resolve_path(bond_analytics_semantics)
 
@@ -195,8 +297,8 @@ class AppSettings:
                 keywords=_INPUT_KEYWORDS,
             ),
             "cache": DatasetConfig(
-                db_path=cache_db_path,
-                semantics_dir=cache_semantics_dir,
+                db_path=quant_cache_db_path,
+                semantics_dir=quant_cache_semantics_dir,
                 dataset="quant_cache",
                 keywords=_CACHE_KEYWORDS,
             ),
@@ -231,18 +333,18 @@ class AppSettings:
             bond_analytics_db_path=bond_analytics_db_path,
             bond_analytics_semantics_dir=bond_analytics_semantics_dir,
             bond_analytics_semantics_path=bond_analytics_semantics_path,
-            cache_db_path=cache_db_path,
-            cache_semantics_dir=cache_semantics_dir,
+            quant_cache_db_path=quant_cache_db_path,
+            quant_cache_semantics_dir=quant_cache_semantics_dir,
             sessions_dir=_resolve_path(sessions),
             mcp_datasets=mcp_datasets,
             write_to_bond_analytics_db=write_to_bond_analytics_db,
         )
 
     def ensure_dirs(self) -> None:
-        self.cache_db_path.parent.mkdir(parents=True, exist_ok=True)
+        self.quant_cache_db_path.parent.mkdir(parents=True, exist_ok=True)
         self.bond_analytics_db_path.parent.mkdir(parents=True, exist_ok=True)
         self.sessions_dir.mkdir(parents=True, exist_ok=True)
-        self.cache_semantics_dir.mkdir(parents=True, exist_ok=True)
+        self.quant_cache_semantics_dir.mkdir(parents=True, exist_ok=True)
 
 
 def load_settings(config_path: str | Path | None = None) -> AppSettings:

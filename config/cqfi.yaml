@@ -4,9 +4,12 @@
 # Override at startup:  cqfi --config path/to/cqfi.yaml
 # Or set CQFI_CONFIG in the environment.
 #
+# Runtime/session toggles (mutable JSON): ~/.cqfi/cqfi_runtime.json
+#   Override path with CQFI_RUNTIME_CONFIG. See RuntimeSettings in config.py.
+#
 # Per-path env overrides (optional, in .env): CQFI_YCS_DB, CQFI_YCS_SEMANTICS,
-# CQFI_BOND_ANALYTICS_DB, CQFI_BOND_ANALYTICS_SEMANTICS, CQFI_CACHE_DB,
-# CQFI_CACHE_SEMANTICS, CQFI_SESSIONS_DIR
+# CQFI_BOND_ANALYTICS_DB, CQFI_BOND_ANALYTICS_SEMANTICS, CQFI_QUANT_CACHE_DB,
+# CQFI_QUANT_CACHE_SEMANTICS, CQFI_SESSIONS_DIR
 #
 # Additional MCP-queryable datasets can be registered without any code changes
 # via an optional top-level `datasets:` mapping, e.g.:
@@ -24,8 +27,8 @@ paths:
   # bond_analytics_db: D:/data/sqlite/bond_analytics.sqlite
   bond_analytics_db: D:/data/duckdb/bond_analytics.duckdb
   bond_analytics_semantics: ./semantics/bond_analytics.yaml
-  cache_db: ./data/cache/active_cache.sqlite
-  cache_semantics_dir: ./semantics
+  quant_cache_db: D:/data/duckdb/quant_cache.duckdb
+  quant_cache_semantics: ./semantics/quant_cache.yaml
   sessions_dir: ./data/sessions
 
 settings:

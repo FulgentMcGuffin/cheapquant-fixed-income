@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date
 from enum import Enum
 from typing import Callable
@@ -75,12 +75,27 @@ class IssuerProfile(metaclass=HasRulesActions):
     settlement_days: int = 1
     frequency: int = ql.Semiannual
     default_rate_type: RateType = RateType.ZERO
+    payment_convention: int = ql.ModifiedFollowing
     ex_dividend: ExDividendConvention | None = None
     repo_day_count: ql.DayCounter | None = None
     repo_settlement_days: int | None = None
 
     def calendar(self) -> ql.Calendar:
         return self.calendar_factory()
+
+    def as_unadjusted(self) -> IssuerProfile:
+        """Return a copy for theoretical (no calendar) coupon schedules.
+
+        Uses :class:`ql.NullCalendar` so weekends/holidays are business days,
+        :data:`ql.Unadjusted` payment/schedule conventions, and clears any
+        ex-dividend window. Day count, frequency, and settlement lag are kept.
+        """
+        return replace(
+            self,
+            calendar_factory=ql.NullCalendar,
+            payment_convention=ql.Unadjusted,
+            ex_dividend=None,
+        )
 
     def settlement_date(self, trade_date: date) -> date:
         """Return settlement date as trade date plus ``settlement_days`` business days."""
@@ -117,7 +132,7 @@ class IssuerProfile(metaclass=HasRulesActions):
             schedule,
             coupon_rates,
             self.day_count,
-            ql.ModifiedFollowing,
+            self.payment_convention,
             redemption,
             issue_date,
             ql.NullCalendar(),

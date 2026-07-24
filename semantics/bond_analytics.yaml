@@ -199,6 +199,7 @@ cmt_analytics:
       trade_date: {type: TEXT, description: "the trade date (YYYY-MM-DD) of the trade."}
       settlement_date: {type: TEXT, description: "the settlement date (YYYY-MM-DD) of the trade."}
       coupon: {type: REAL, description: "Coupon rate as a percentage."}
+      is_fixed_coupon: {type: BOOLEAN, description: "1 if the CMT is a fixed coupon CMT, 0 otherwise."}
       maturity_date: {type: TEXT, description: "the maturity date (YYYY-MM-DD) of the CMT."}
       curve_used: {type: BOOLEAN, description: "1 if the bond curve was used to compute the analytics, 0 otherwise."}
       curve_settings: {type: TEXT, description: "The settings used on the (bond) curve to compute the analytics of the CMT"}
@@ -218,17 +219,23 @@ cmt_analytics:
 examples:
   - q: "What 10Y CMT clean prices did we compute for US Treasuries?"
     sql: >
-      SELECT valuation_date, clean_price, yield_pct
-      FROM cmt_prices
-      WHERE issuer = 'USA' AND tenor_label = '10Y'
-      ORDER BY valuation_date
+      SELECT trade_date, clean_price, yield_to_maturity
+      FROM cmt_analytics
+      WHERE issuer = 'USA' AND tenor_label = '10y' AND is_fixed_coupon = 0
+      ORDER BY trade_date
   - q: "Latest German CMT pricing run"
     sql: >
       SELECT *
-      FROM cmt_prices
+      FROM cmt_analytics
       WHERE issuer = 'DEU'
-      ORDER BY created_at DESC
+      ORDER BY trade_date DESC
       LIMIT 13
   - q: "How many pricing runs are in this session?"
     sql: >
       SELECT COUNT(*) AS run_count FROM calculation_log
+  - q: "What is the yield of French bonds that mature 10Y from now?"
+    sql: >
+      SELECT AVG(yield_to_maturity)
+      FROM bond_analytics
+      WHERE bond_id IN (SELECT bond_id FROM bond_universe WHERE issuer = 'FRA' AND CAST((julianday(maturity) - julianday(CURRENT_DATE)) / 365.25 AS INTEGER) BETWEEN 9 AND 11)
+      AND trade_date = (SELECT MAX(trade_date) FROM bond_analytics WHERE bond_id IN (SELECT bond_id FROM bond_universe WHERE issuer = 'FRA' AND CAST((julianday(maturity) - julianday(CURRENT_DATE)) / 365.25 AS INTEGER) BETWEEN 9 AND 11));

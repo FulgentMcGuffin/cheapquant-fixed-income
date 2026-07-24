@@ -89,9 +89,9 @@ Optional per-path overrides live in `.env` (see `.env.example`).
 | YCS semantics | `paths.ycs_semantics` | `./semantics/ycs_data.yaml` |
 | Bond analytics DB | `paths.bond_analytics_db` | `D:/data/duckdb/bond_analytics.duckdb` |
 | Bond analytics semantics | `paths.bond_analytics_semantics` | `./semantics/bond_analytics.yaml` |
-| Active cache | `paths.cache_db` | `./data/cache/active_cache.db` |
+| Active cache | `paths.quant_cache_db` | `D:/data/duckdb/quant_cache.duckdb` |
 | Sessions | `paths.sessions_dir` | `./data/sessions/` |
-| Cache semantics | `paths.cache_semantics_dir` | `./semantics` |
+| Cache semantics | `paths.quant_cache_semantics` | `./semantics/quant_cache.yaml` |
 | Write analytics to bond DB | `settings.write_to_bond_analytics_db` | `true` |
 
 Build or refresh the bond analytics database (schema + CSV seed data):
@@ -269,12 +269,13 @@ request = BondAnalyticsInput(
 )
 
 calc = QuantLibAnalyticsCalculator()
-result = calc.compute_bond_analytics(request, market)
+result, mm_fc_cmt = calc.compute_bond_analytics(request, market)
 
 print(result.yield_to_maturity)   # percent
 print(result.z_spread)            # basis points
 print(result.roll_1y_spotyield)   # spot YTM minus 9y-equivalent YTM
 print(result.roll_1y_fwdyield)    # spot YTM minus forward YTM in 1y
+print(mm_fc_cmt.clean_price)      # maturity-matched par CMT (~100)
 print(result.as_json())           # populated fields only
 ```
 

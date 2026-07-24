@@ -485,7 +485,7 @@ def _handle_local_command(
         try:
             result = cache_mgr.price_cmts(issuer, val_date, rate_type=rate_type)
             print(result)
-            print(f"\n({len(result)} CMTs priced and cached)")
+            print(f"\n({len(result)} CMTs priced)")
         except Exception as exc:
             print(f"Pricing error: {exc}")
         return True

@@ -1,4 +1,4 @@
-"""FrameCache lifecycle, session persistence, and cached QuantLib entry points."""
+﻿"""FrameCache lifecycle, session persistence, and cached QuantLib entry points."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ from framecache.backends import SQLiteBackend
 from framecache.cache_config import CacheConfig
 
 from cheapquant_fi.cache.registry import CacheRegistry
-from cheapquant_fi.config import AppSettings, get_settings
+from cheapquant_fi.config import AppSettings, get_runtime_settings, get_settings
 from cheapquant_fi.issuers import RateType
 from cheapquant_fi.quantlib.cmt import ql_price_cmts
 
@@ -25,8 +25,8 @@ class CacheManager:
     def __init__(self, settings: AppSettings | None = None) -> None:
         self.settings = settings or get_settings()
         self.settings.ensure_dirs()
-        self._backend = SQLiteBackend(self.settings.cache_db_path)
-        self._registry = CacheRegistry(self.settings.cache_db_path)
+        self._backend = SQLiteBackend(self.settings.quant_cache_db_path)
+        self._registry = CacheRegistry(self.settings.quant_cache_db_path)
         self._framecache = FrameCache(
             self._backend,
             framecache_key="cheapquant_fi",
@@ -34,7 +34,6 @@ class CacheManager:
             default_ttl=None,
         )
         self._session_id: str | None = None
-        self._bind_cached_functions()
 
     @property
     def framecache(self) -> FrameCache:
@@ -46,19 +45,12 @@ class CacheManager:
 
     @property
     def db_path(self) -> Path:
-        return self.settings.cache_db_path
+        return self.settings.quant_cache_db_path
 
-    def _bind_cached_functions(self) -> None:
-        @self._framecache.cache(method="pyarrow", calls=(20, True))
-        def _cached_price_cmts(
-            db_path: str,
-            source: str,
-            valuation_date: str,
-            rate_type: str = "zero",
-        ) -> pl.DataFrame:
-            return ql_price_cmts(db_path, source, valuation_date, rate_type=rate_type)
-
-        self._cached_price_cmts = _cached_price_cmts
+    @property
+    def use_quant_cache(self) -> bool:
+        """Whether session results should be written to ``quant_cache_db`` (runtime toggle)."""
+        return get_runtime_settings().use_quant_cache
 
     def price_cmts(
         self,
@@ -66,28 +58,14 @@ class CacheManager:
         valuation_date: str | date,
         rate_type: RateType | str = RateType.ZERO,
     ) -> pl.DataFrame:
-        """Price CMTs with framecache memoization and registry indexing."""
+        """Price CMTs from ycs_data without writing results to the cache."""
         if isinstance(valuation_date, date):
             valuation_date = valuation_date.isoformat()
         if isinstance(rate_type, RateType):
             rate_type = rate_type.value
 
         db_path = str(self.settings.ycs_db_path)
-        result = self._cached_price_cmts(db_path, source, valuation_date, rate_type)
-
-        cache_id = self._framecache.latest_cache_instance_id(
-            self._cached_price_cmts,
-            "pyarrow",
-            db_path,
-            source,
-            valuation_date,
-            rate_type,
-        )
-
-        if cache_id:
-            self._registry.register_cmt_prices(cache_id, result)
-
-        return result
+        return ql_price_cmts(db_path, source, valuation_date, rate_type=rate_type)
 
     def list_cache_entries(self) -> pl.DataFrame:
         return self._backend.metadata_df()
@@ -98,7 +76,7 @@ class CacheManager:
         dest = self.settings.sessions_dir / f"{session_id}.db"
         self._backend.close()
         self._registry.close()
-        shutil.copy2(self.settings.cache_db_path, dest)
+        shutil.copy2(self.settings.quant_cache_db_path, dest)
         self._session_id = session_id
         self._reopen()
         return session_id
@@ -110,7 +88,7 @@ class CacheManager:
             raise FileNotFoundError(f"No saved session {session_id!r} at {src}")
         self._backend.close()
         self._registry.close()
-        shutil.copy2(src, self.settings.cache_db_path)
+        shutil.copy2(src, self.settings.quant_cache_db_path)
         self._session_id = session_id
         self._reopen()
         self._framecache.refresh()
@@ -119,8 +97,8 @@ class CacheManager:
         """Clear analytics tables and framecache entries."""
         self._backend.close()
         self._registry.close()
-        if self.settings.cache_db_path.exists():
-            self.settings.cache_db_path.unlink()
+        if self.settings.quant_cache_db_path.exists():
+            self.settings.quant_cache_db_path.unlink()
         self._session_id = None
         self._reopen()
         self._registry.reset_analytics_tables()
@@ -129,15 +107,14 @@ class CacheManager:
         return sorted(p.stem for p in self.settings.sessions_dir.glob("*.db"))
 
     def _reopen(self) -> None:
-        self._backend = SQLiteBackend(self.settings.cache_db_path)
-        self._registry = CacheRegistry(self.settings.cache_db_path)
+        self._backend = SQLiteBackend(self.settings.quant_cache_db_path)
+        self._registry = CacheRegistry(self.settings.quant_cache_db_path)
         self._framecache = FrameCache(
             self._backend,
             framecache_key="cheapquant_fi",
             use_hash_keys=True,
             default_ttl=None,
         )
-        self._bind_cached_functions()
 
     def close(self) -> None:
         self._backend.close()
@@ -150,7 +127,6 @@ class CacheManager:
         mgr = cls(settings=settings)
         mgr._backend.close()
         mgr._framecache = FrameCache.from_config(config)
-        mgr._bind_cached_functions()
         return mgr
 
     @staticmethod
