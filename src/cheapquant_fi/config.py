@@ -202,6 +202,7 @@ class AppSettings:
     bond_analytics_semantics_path: Path
     quant_cache_db_path: Path
     quant_cache_semantics_dir: Path
+    quant_cache_semantics_path: Path
     sessions_dir: Path
     mcp_datasets: dict[str, DatasetConfig]
     write_to_bond_analytics_db: bool = False
@@ -286,6 +287,7 @@ class AppSettings:
         bond_analytics_db_path = _resolve_path(bond_analytics_db)
         quant_cache_db_path = _resolve_path(quant_cache_db)
         quant_cache_semantics_dir = _semantics_dir_from_value(quant_cache_semantics)
+        quant_cache_semantics_path = _resolve_path(quant_cache_semantics)
         bond_analytics_semantics_dir = _semantics_dir_from_value(bond_analytics_semantics)
         bond_analytics_semantics_path = _resolve_path(bond_analytics_semantics)
 
@@ -335,6 +337,7 @@ class AppSettings:
             bond_analytics_semantics_path=bond_analytics_semantics_path,
             quant_cache_db_path=quant_cache_db_path,
             quant_cache_semantics_dir=quant_cache_semantics_dir,
+            quant_cache_semantics_path=quant_cache_semantics_path,
             sessions_dir=_resolve_path(sessions),
             mcp_datasets=mcp_datasets,
             write_to_bond_analytics_db=write_to_bond_analytics_db,

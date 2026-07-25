@@ -8,6 +8,7 @@ import QuantLib as ql
 
 from cheapquant_fi.analytics_input import BondAnalyticsInput, CmtAnalyticsInput
 from cheapquant_fi.analytics_output import FixedIncomeAnalyticsOutput
+from cheapquant_fi.cache.decorators import cache_bond_analytics
 from cheapquant_fi.issuers import IssuerProfile, resolve_issuer
 from cheapquant_fi.quantlib.quantlib_market_context import QuantlibMarketContext
 from cheapquant_fi.numeric_term_structure import NumericTermStructure
@@ -81,21 +82,27 @@ def _tenor_label_to_years(label: str) -> float:
 class QuantLibAnalyticsCalculator:
     """QuantLib-backed :class:`AnalyticsCalculator`."""
 
+    @cache_bond_analytics
     def compute_bond_analytics(
         self,
         request: BondAnalyticsInput,
         market: QuantlibMarketContext = None,
         *,
         curve_label: str = "BOND_ZERO",
-    ) -> tuple[FixedIncomeAnalyticsOutput, FixedIncomeAnalyticsOutput | None, FixedIncomeAnalyticsOutput | None]:
-        """Return bond analytics and optional maturity-matched CMT analytics and optional maturity-matched fixed-coupon CMT analytics from input.
+    ) -> tuple[
+        FixedIncomeAnalyticsOutput,
+        FixedIncomeAnalyticsOutput | None,
+        FixedIncomeAnalyticsOutput | None,
+    ]:
+        """Return bond analytics plus optional maturity-matched CMT analytics.
 
-        The CMT uses the bond's settlement and maturity, the bond's curve
-        ``par_yield`` as coupon, and :meth:`IssuerProfile.as_unadjusted`
-        conventions (no holiday calendar / no payment-date adjustment / no ex-dividend adjustment).
-        
-        The fixed-coupon CMT uses the bond's settlement and maturity, the input coupon as the bond's coupon, and :meth:`IssuerProfile.as_unadjusted`
-        conventions (no holiday calendar / no payment-date adjustment / no ex-dividend adjustment).
+        Returns ``(bond, mm_cmt, mm_fc_cmt)`` where:
+
+        - *mm_cmt* uses the curve par yield as coupon (NullCalendar / Unadjusted)
+        - *mm_fc_cmt* uses the bond's coupon with the same unadjusted conventions
+
+        When ``use_quant_cache`` is true, :func:`cache_bond_analytics` persists
+        non-``None`` outputs into ``quant_cache_db``.
         """
         issuer = resolve_issuer(request.issuer)
         settlement = _to_ql_date(request.settlement_date)
@@ -105,59 +112,69 @@ class QuantLibAnalyticsCalculator:
         curve_handle = self._bond_curve(market, issuer.source_code, curve_label)
         use_curve = self._uses_curve(request)
 
-        if use_curve:
-            qlbond.setPricingEngine(ql.DiscountingBondEngine(curve_handle))
-            maturity = _to_ql_date(request.maturity_date)
-            metrics = self._bond_metrics_from_priced_bond(
-                qlbond,
-                issuer,
+        if not use_curve:
+            metrics = self._bond_metrics_from_input(
+                qlbond, issuer, settlement, request.input_column, request.input_value
+            )
+            return metrics, None, None
+
+        qlbond.setPricingEngine(ql.DiscountingBondEngine(curve_handle))
+        maturity = _to_ql_date(request.maturity_date)
+        metrics = self._bond_metrics_from_priced_bond(
+            qlbond,
+            issuer,
+            settlement,
+            curve_handle=curve_handle,
+            issue_date=_to_ql_date(request.issue_date or request.settlement_date),
+            maturity_date=maturity,
+            coupon_pct=request.coupon,
+            face_amount=request.face_amount,
+            repo_term_structure=request.repo_term_structure,
+        )
+
+        cmt_issuer = issuer.as_unadjusted()
+        cmt_metrics = None
+        if metrics.par_yield is not None:
+            cmt_bond = self._build_maturity_matched_cmt(
+                cmt_issuer,
+                settlement,
+                maturity,
+                metrics.par_yield,
+                face_amount=request.face_amount,
+            )
+            cmt_bond.setPricingEngine(ql.DiscountingBondEngine(curve_handle))
+            cmt_metrics = self._bond_metrics_from_priced_bond(
+                cmt_bond,
+                cmt_issuer,
                 settlement,
                 curve_handle=curve_handle,
-                issue_date=_to_ql_date(request.issue_date or request.settlement_date),
+                issue_date=settlement,
                 maturity_date=maturity,
-                coupon_pct=request.coupon,
+                coupon_pct=metrics.par_yield,
                 face_amount=request.face_amount,
-                repo_term_structure=request.repo_term_structure,
+                repo_term_structure=None,
             )
-            cmt_metrics = None
-            if metrics.par_yield is not None:
-                cmt_issuer = issuer.as_unadjusted()
-                cmt_bond = self._build_maturity_matched_cmt(
-                    cmt_issuer,
-                    settlement,
-                    maturity,
-                    metrics.par_yield,
-                    face_amount=request.face_amount,
-                )
-                cmt_bond.setPricingEngine(ql.DiscountingBondEngine(curve_handle))
-                cmt_metrics = self._bond_metrics_from_priced_bond(
-                    cmt_bond,
-                    cmt_issuer,
-                    settlement,
-                    curve_handle=curve_handle,
-                    issue_date=settlement,
-                    maturity_date=maturity,
-                    coupon_pct=metrics.par_yield,
-                    face_amount=request.face_amount,
-                    repo_term_structure=None,
-                )
-                fc_cmt_metrics = self._bond_metrics_from_input(
-                    cmt_bond,
-                    cmt_issuer,
-                    settlement,
-                    curve_handle=curve_handle,
-                    issue_date=settlement,
-                    maturity_date=maturity,
-                    coupon_pct=request.coupon,
-                    face_amount=request.face_amount,
-                    repo_term_structure=None,
-                )                
-            return metrics, cmt_metrics, fc_cmt_metrics
 
-        metrics = self._bond_metrics_from_input(
-            qlbond, issuer, settlement, request.input_column, request.input_value
+        fc_cmt_bond = self._build_maturity_matched_cmt(
+            cmt_issuer,
+            settlement,
+            maturity,
+            request.coupon,
+            face_amount=request.face_amount,
         )
-        return metrics, None, None
+        fc_cmt_bond.setPricingEngine(ql.DiscountingBondEngine(curve_handle))
+        fc_cmt_metrics = self._bond_metrics_from_priced_bond(
+            fc_cmt_bond,
+            cmt_issuer,
+            settlement,
+            curve_handle=curve_handle,
+            issue_date=settlement,
+            maturity_date=maturity,
+            coupon_pct=request.coupon,
+            face_amount=request.face_amount,
+            repo_term_structure=None,
+        )
+        return metrics, cmt_metrics, fc_cmt_metrics
 
     def _uses_curve(self, request: BondAnalyticsInput | CmtAnalyticsInput) -> bool:
         if request.input_column is None:

@@ -269,13 +269,14 @@ request = BondAnalyticsInput(
 )
 
 calc = QuantLibAnalyticsCalculator()
-result, mm_fc_cmt = calc.compute_bond_analytics(request, market)
+result, mm_cmt, mm_fc_cmt = calc.compute_bond_analytics(request, market)
 
 print(result.yield_to_maturity)   # percent
 print(result.z_spread)            # basis points
 print(result.roll_1y_spotyield)   # spot YTM minus 9y-equivalent YTM
 print(result.roll_1y_fwdyield)    # spot YTM minus forward YTM in 1y
-print(mm_fc_cmt.clean_price)      # maturity-matched par CMT (~100)
+print(mm_cmt.clean_price)         # maturity-matched par CMT (~100)
+print(mm_fc_cmt.clean_price)      # maturity-matched fixed-coupon CMT
 print(result.as_json())           # populated fields only
 ```
 

@@ -21,6 +21,6 @@ class AnalyticsCalculator(Protocol):
         market: QuantlibMarketContext = None,
         *,
         curve_label: str = "BOND_ZERO",
-    ) -> tuple[FixedIncomeAnalyticsOutput, FixedIncomeAnalyticsOutput | None]:
-        """Return bond analytics and optional maturity-matched fixed-coupon CMT analytics."""
+    ) -> tuple[FixedIncomeAnalyticsOutput, FixedIncomeAnalyticsOutput | None, FixedIncomeAnalyticsOutput | None]:
+        """Return bond analytics and optional maturity-matched CMT analytics and optional fixed-coupon CMT analytics."""
 

@@ -1,4 +1,4 @@
-﻿"""FrameCache lifecycle, session persistence, and cached QuantLib entry points."""
+﻿"""FrameCache lifecycle, session persistence, and QuantLib entry points."""
 
 from __future__ import annotations
 
@@ -13,30 +13,46 @@ from framecache import FrameCache
 from framecache.backends import SQLiteBackend
 from framecache.cache_config import CacheConfig
 
-from cheapquant_fi.cache.registry import CacheRegistry
+from cheapquant_fi.cache.registry import (
+    CacheRegistry,
+    get_cache_registry,
+    reset_cache_registry,
+)
 from cheapquant_fi.config import AppSettings, get_runtime_settings, get_settings
 from cheapquant_fi.issuers import RateType
 from cheapquant_fi.quantlib.cmt import ql_price_cmts
 
 
 class CacheManager:
-    """Owns the active cache DB, framecache instance, and session I/O."""
+    """Owns the active cache DB, framecache instance, and analytics registry."""
 
     def __init__(self, settings: AppSettings | None = None) -> None:
         self.settings = settings or get_settings()
         self.settings.ensure_dirs()
-        self._backend = SQLiteBackend(self.settings.quant_cache_db_path)
-        self._registry = CacheRegistry(self.settings.quant_cache_db_path)
-        self._framecache = FrameCache(
-            self._backend,
-            framecache_key="cheapquant_fi",
-            use_hash_keys=True,
-            default_ttl=None,
+        # Analytics tables (bond_analytics / cmt_analytics) via shared registry.
+        self._registry = get_cache_registry(
+            self.settings.quant_cache_db_path,
+            self.settings.quant_cache_semantics_path,
         )
+        # Framecache blob store is SQLite-only; skip for DuckDB quant_cache paths.
+        self._backend: SQLiteBackend | None = None
+        self._framecache: FrameCache | None = None
+        if self.settings.quant_cache_db_path.suffix.lower() != ".duckdb":
+            self._backend = SQLiteBackend(self.settings.quant_cache_db_path)
+            self._framecache = FrameCache(
+                self._backend,
+                framecache_key="cheapquant_fi",
+                use_hash_keys=True,
+                default_ttl=None,
+            )
         self._session_id: str | None = None
 
     @property
     def framecache(self) -> FrameCache:
+        if self._framecache is None:
+            raise RuntimeError(
+                "FrameCache is unavailable when quant_cache_db is a DuckDB file"
+            )
         return self._framecache
 
     @property
@@ -48,8 +64,12 @@ class CacheManager:
         return self.settings.quant_cache_db_path
 
     @property
+    def registry(self) -> CacheRegistry:
+        return self._registry
+
+    @property
     def use_quant_cache(self) -> bool:
-        """Whether session results should be written to ``quant_cache_db`` (runtime toggle)."""
+        """Whether session results should be written to ``quant_cache_db``."""
         return get_runtime_settings().use_quant_cache
 
     def price_cmts(
@@ -68,13 +88,16 @@ class CacheManager:
         return ql_price_cmts(db_path, source, valuation_date, rate_type=rate_type)
 
     def list_cache_entries(self) -> pl.DataFrame:
+        if self._backend is None:
+            return pl.DataFrame()
         return self._backend.metadata_df()
 
     def save_session(self, session_id: str | None = None) -> str:
         """Persist the active cache DB to sessions/{session_id}.db."""
         session_id = session_id or uuid.uuid4().hex[:12]
-        dest = self.settings.sessions_dir / f"{session_id}.db"
-        self._backend.close()
+        dest = self.settings.sessions_dir / f"{session_id}{self.settings.quant_cache_db_path.suffix}"
+        if self._backend is not None:
+            self._backend.close()
         self._registry.close()
         shutil.copy2(self.settings.quant_cache_db_path, dest)
         self._session_id = session_id
@@ -83,20 +106,28 @@ class CacheManager:
 
     def load_session(self, session_id: str) -> None:
         """Replace the active cache with a saved session."""
-        src = self.settings.sessions_dir / f"{session_id}.db"
+        suffix = self.settings.quant_cache_db_path.suffix
+        src = self.settings.sessions_dir / f"{session_id}{suffix}"
         if not src.exists():
-            raise FileNotFoundError(f"No saved session {session_id!r} at {src}")
-        self._backend.close()
+            # Backward-compatible: older sessions used ".db"
+            alt = self.settings.sessions_dir / f"{session_id}.db"
+            if not alt.exists():
+                raise FileNotFoundError(f"No saved session {session_id!r} at {src}")
+            src = alt
+        if self._backend is not None:
+            self._backend.close()
         self._registry.close()
         shutil.copy2(src, self.settings.quant_cache_db_path)
         self._session_id = session_id
         self._reopen()
-        self._framecache.refresh()
+        if self._framecache is not None:
+            self._framecache.refresh()
 
     def reset_cache(self) -> None:
         """Clear analytics tables and framecache entries."""
-        self._backend.close()
-        self._registry.close()
+        if self._backend is not None:
+            self._backend.close()
+        reset_cache_registry()
         if self.settings.quant_cache_db_path.exists():
             self.settings.quant_cache_db_path.unlink()
         self._session_id = None
@@ -104,20 +135,28 @@ class CacheManager:
         self._registry.reset_analytics_tables()
 
     def list_sessions(self) -> list[str]:
-        return sorted(p.stem for p in self.settings.sessions_dir.glob("*.db"))
+        return sorted({p.stem for p in self.settings.sessions_dir.glob("*.*")})
 
     def _reopen(self) -> None:
-        self._backend = SQLiteBackend(self.settings.quant_cache_db_path)
-        self._registry = CacheRegistry(self.settings.quant_cache_db_path)
-        self._framecache = FrameCache(
-            self._backend,
-            framecache_key="cheapquant_fi",
-            use_hash_keys=True,
-            default_ttl=None,
+        reset_cache_registry()
+        self._registry = get_cache_registry(
+            self.settings.quant_cache_db_path,
+            self.settings.quant_cache_semantics_path,
         )
+        self._backend = None
+        self._framecache = None
+        if self.settings.quant_cache_db_path.suffix.lower() != ".duckdb":
+            self._backend = SQLiteBackend(self.settings.quant_cache_db_path)
+            self._framecache = FrameCache(
+                self._backend,
+                framecache_key="cheapquant_fi",
+                use_hash_keys=True,
+                default_ttl=None,
+            )
 
     def close(self) -> None:
-        self._backend.close()
+        if self._backend is not None:
+            self._backend.close()
         self._registry.close()
 
     @classmethod

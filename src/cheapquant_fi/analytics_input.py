@@ -24,6 +24,7 @@ class BondAnalyticsInput:
     input_column: str | None = None
     input_value: float | None = None
     repo_term_structure: NumericTermStructure | None = None
+    bond_id: str | None = None
 
     @classmethod
     def from_bond(
@@ -36,7 +37,7 @@ class BondAnalyticsInput:
         face_amount: float | None = None,
         input_column: str | None = None,
         input_value: float | None = None,
-        repo_term_structure: NumericTermStructure | None = None
+        repo_term_structure: NumericTermStructure | None = None,
     ) -> BondAnalyticsInput:
         """Build analytics inputs from a :class:`Bond` universe record."""
         if settlement_date is None:
@@ -63,6 +64,7 @@ class BondAnalyticsInput:
             input_column=input_column,
             input_value=input_value,
             repo_term_structure=repo_term_structure,
+            bond_id=bond.bond_id,
         )
 
 
