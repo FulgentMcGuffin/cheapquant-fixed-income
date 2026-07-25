@@ -264,6 +264,33 @@ class CacheRegistry:
         days = (maturity - start).days
         return f"{max(days, 0)}d"
 
+    def fetch_all_rows(self, table: str) -> list[dict[str, Any]]:
+        """Return all rows from an analytics table as dicts."""
+        if table not in _ANALYTICS_TABLES:
+            raise ValueError(f"Unsupported analytics table: {table}")
+        conn = self._conn()
+        result = conn.execute(f'SELECT * FROM "{table}"')
+        if self._duckdb:
+            return result.fetchdf().to_dict("records")
+        cols = [desc[0] for desc in result.description]
+        return [dict(zip(cols, row)) for row in result.fetchall()]
+
+    def upsert_row(self, table: str, row: dict[str, Any]) -> None:
+        """Insert or replace a row keyed by the table primary key."""
+        allowed = self._table_columns.get(table) or set(row)
+        payload = {k: v for k, v in row.items() if k in allowed}
+        if not payload:
+            return
+        cols = list(payload)
+        col_list = ", ".join(f'"{c}"' for c in cols)
+        placeholders = ", ".join("?" for _ in cols)
+        values = [payload[c] for c in cols]
+        sql = f'INSERT OR REPLACE INTO "{table}" ({col_list}) VALUES ({placeholders})'
+        conn = self._conn()
+        conn.execute(sql, values)
+        if not self._duckdb:
+            conn.commit()
+
     def reset_analytics_tables(self) -> None:
         conn = self._conn()
         for table in _ANALYTICS_TABLES:

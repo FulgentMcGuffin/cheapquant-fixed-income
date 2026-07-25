@@ -7,8 +7,11 @@ from cheapquant_fi.config import (  # noqa: F401
     DEFAULT_CONFIG_PATH,
     AppSettings,
     configure_langsmith,
+    get_runtime_settings,
     get_settings,
+    load_runtime_settings,
     load_settings,
+    save_runtime_settings,
 )
 
 configure_langsmith()
@@ -83,6 +86,16 @@ HELP_TEXT_CQFI = (
     "    Also available in LLM mode: \"Show bond usa10y001 as JSON\", \"what's the\n"
     "    duration of fraapr029?\"\n"
     "\n"
+    "Quant cache commands:\n"
+    "  /cache on   — enable writing analytics to quant_cache_db\n"
+    "  /cache off  — disable quant cache writes\n"
+    "  /cache      — show help and current use_quant_cache setting\n"
+    "\n"
+    "Quant cache session-end commands:\n"
+    "  /save_cache on   — on exit, merge quant_cache_db analytics into bond_analytics_db\n"
+    "  /save_cache off  — on exit, discard quant_cache_db analytics without merging\n"
+    "  /save_cache      — show help and current save_quant_cache_to_bond_analytics_after_session setting\n"
+    "\n"
     "Bond analytics commands:\n"
     "  /calc <id> [date] [curve] [term_structure]  — compute bond analytics\n"
     "    id: bond_friendly_id or bond_id (required)\n"
@@ -139,6 +152,12 @@ _CALC_RE = re.compile(
 )
 _CALC_HELP_RE = re.compile(r"^/calc\s*$", re.IGNORECASE)
 _MCTX_HELP_RE = re.compile(r"^/mctx\s*$", re.IGNORECASE)
+_CACHE_HELP_RE = re.compile(r"^/cache\s*$", re.IGNORECASE)
+_CACHE_ON_RE = re.compile(r"^/cache\s+on\s*$", re.IGNORECASE)
+_CACHE_OFF_RE = re.compile(r"^/cache\s+off\s*$", re.IGNORECASE)
+_SAVE_CACHE_HELP_RE = re.compile(r"^/save_cache\s*$", re.IGNORECASE)
+_SAVE_CACHE_ON_RE = re.compile(r"^/save_cache\s+on\s*$", re.IGNORECASE)
+_SAVE_CACHE_OFF_RE = re.compile(r"^/save_cache\s+off\s*$", re.IGNORECASE)
 _BARE_MENTION_RE = re.compile(r"^@(?P<id>\S+)$")
 
 _BOND_HELP_TEXT = (
@@ -171,6 +190,40 @@ _MCTX_HELP_TEXT = (
     "Examples:\n"
     "  /mctx 2024-02-15 FRA      — Check France market on Feb 15, 2024\n"
     "  /mctx 2024-02-15          — Check all markets on Feb 15, 2024\n"
+)
+
+_CACHE_HELP_TEXT = (
+    "Quant Cache Session Toggle\n"
+    "==========================\n"
+    "\n"
+    "The /cache command controls whether bond analytics results from /calc and "
+    "compute_bond_analytics are written to quant_cache_db during this session.\n"
+    "\n"
+    "Commands:\n"
+    "  /cache on   — enable caching of analytics to quant_cache_db\n"
+    "  /cache off  — disable caching (compute only, no DB writes)\n"
+    "  /cache      — show this help and the current setting\n"
+)
+
+_SAVE_CACHE_HELP_TEXT = (
+    "Quant Cache Session-End Policy\n"
+    "==============================\n"
+    "\n"
+    "The /save_cache command controls what happens to quant_cache_db analytics "
+    "when the application closes.\n"
+    "\n"
+    "When enabled (/save_cache on), on exit all rows from quant_cache_db "
+    "bond_analytics and cmt_analytics are merged into the corresponding tables "
+    "in bond_analytics_db (overwriting rows with the same analytic_id or "
+    "cmt_analytic_id), then quant_cache_db analytics tables are cleared.\n"
+    "\n"
+    "When disabled (/save_cache off), on exit quant_cache_db bond_analytics "
+    "and cmt_analytics rows are deleted without copying to bond_analytics_db.\n"
+    "\n"
+    "Commands:\n"
+    "  /save_cache on   — merge into bond_analytics_db on exit, then clear quant cache\n"
+    "  /save_cache off  — discard quant cache analytics on exit (no merge)\n"
+    "  /save_cache      — show this help and the current setting\n"
 )
 
 _CALC_HELP_TEXT = (
@@ -231,6 +284,125 @@ def mcp_settings_for(app: AppSettings, target: str) -> MCPSettings:
         semantics_dir=cfg.semantics_dir,
         server_name=f"cqfi-{target}",
     )
+
+
+def format_cache_status() -> str:
+    """Return a one-line summary of the current use_quant_cache setting."""
+    enabled = get_runtime_settings().use_quant_cache
+    state = "enabled (true)" if enabled else "disabled (false)"
+    return f"Current setting: use_quant_cache is {state}."
+
+
+def handle_cache_command(text: str) -> str | None:
+    """Handle /cache, /cache on, /cache off. Returns output text if handled."""
+    stripped = text.strip()
+    if _CACHE_HELP_RE.match(stripped):
+        return f"{_CACHE_HELP_TEXT}\n\n{format_cache_status()}"
+    if _CACHE_ON_RE.match(stripped):
+        runtime = get_runtime_settings()
+        runtime.update(use_quant_cache=True)
+        save_runtime_settings(runtime)
+        return f"use_quant_cache set to true.\n\n{format_cache_status()}"
+    if _CACHE_OFF_RE.match(stripped):
+        runtime = get_runtime_settings()
+        runtime.update(use_quant_cache=False)
+        save_runtime_settings(runtime)
+        return f"use_quant_cache set to false.\n\n{format_cache_status()}"
+    if re.match(r"^/cache\b", stripped, re.IGNORECASE):
+        return (
+            "Invalid /cache command. Use /cache, /cache on, or /cache off.\n\n"
+            f"{format_cache_status()}"
+        )
+    return None
+
+
+def format_save_cache_status() -> str:
+    """Return a one-line summary of save_quant_cache_to_bond_analytics_after_session."""
+    enabled = get_runtime_settings().save_quant_cache_to_bond_analytics_after_session
+    state = "enabled (true)" if enabled else "disabled (false)"
+    return (
+        "Current setting: save_quant_cache_to_bond_analytics_after_session is "
+        f"{state}."
+    )
+
+
+def handle_save_cache_command(text: str) -> str | None:
+    """Handle /save_cache, /save_cache on, /save_cache off."""
+    stripped = text.strip()
+    if _SAVE_CACHE_HELP_RE.match(stripped):
+        return f"{_SAVE_CACHE_HELP_TEXT}\n\n{format_save_cache_status()}"
+    if _SAVE_CACHE_ON_RE.match(stripped):
+        runtime = get_runtime_settings()
+        runtime.update(save_quant_cache_to_bond_analytics_after_session=True)
+        save_runtime_settings(runtime)
+        return (
+            "save_quant_cache_to_bond_analytics_after_session set to true.\n\n"
+            f"{format_save_cache_status()}"
+        )
+    if _SAVE_CACHE_OFF_RE.match(stripped):
+        runtime = get_runtime_settings()
+        runtime.update(save_quant_cache_to_bond_analytics_after_session=False)
+        save_runtime_settings(runtime)
+        return (
+            "save_quant_cache_to_bond_analytics_after_session set to false.\n\n"
+            f"{format_save_cache_status()}"
+        )
+    if re.match(r"^/save_cache\b", stripped, re.IGNORECASE):
+        return (
+            "Invalid /save_cache command. Use /save_cache, /save_cache on, "
+            f"or /save_cache off.\n\n{format_save_cache_status()}"
+        )
+    return None
+
+
+def handle_runtime_toggle_commands(text: str) -> str | None:
+    """Handle /cache and /save_cache runtime toggle commands."""
+    for handler in (handle_cache_command, handle_save_cache_command):
+        result = handler(text)
+        if result is not None:
+            return result
+    return None
+
+
+def handle_bond_command(text: str) -> str | None:
+    """Return /bond help or invalid-usage text; None if not a /bond command."""
+    stripped = text.strip()
+    if _BOND_HELP_RE.match(stripped):
+        return _BOND_HELP_TEXT
+    if re.match(r"^/bond\b", stripped, re.IGNORECASE) and not _BOND_RE.match(stripped):
+        return (
+            "Invalid /bond command. Use /bond <id> "
+            "(user_friendly_id or bond_id).\n\n"
+            f"{_BOND_HELP_TEXT}"
+        )
+    return None
+
+
+def handle_mctx_command(text: str) -> str | None:
+    """Return /mctx help or invalid-usage text; None if not a /mctx command."""
+    stripped = text.strip()
+    if _MCTX_HELP_RE.match(stripped):
+        return _MCTX_HELP_TEXT
+    if re.match(r"^/mctx\b", stripped, re.IGNORECASE) and not _MCTX_RE.match(stripped):
+        return (
+            "Invalid /mctx command. Use /mctx <date> [issuer] [curve_label].\n\n"
+            f"{_MCTX_HELP_TEXT}"
+        )
+    return None
+
+
+def handle_calc_command(text: str) -> str | None:
+    """Return /calc help or invalid-usage text; None if not a /calc command."""
+    stripped = text.strip()
+    if _CALC_HELP_RE.match(stripped):
+        return _CALC_HELP_TEXT
+    if re.match(r"^/calc\b", stripped, re.IGNORECASE) and not _CALC_RE.match(stripped):
+        return (
+            "Invalid /calc command. Use /calc <bond_id> "
+            "[trade_date] [curve_label] [numeric_term_structure].\n\n"
+            f"{_CALC_HELP_TEXT}"
+        )
+    return None
 
 
 def route_query(app: AppSettings, text: str) -> RoutedQuery | None:
@@ -307,17 +479,24 @@ async def _query_dataset(
     use_single_shot: bool,
     force_rule: bool,
 ) -> None:
-    # Check for no-argument help requests first
-    if _BOND_HELP_RE.match(text.strip()):
-        print(_BOND_HELP_TEXT)
+    cache_result = handle_runtime_toggle_commands(text)
+    if cache_result is not None:
+        print(cache_result)
         return
 
-    if _MCTX_HELP_RE.match(text.strip()):
-        print(_MCTX_HELP_TEXT)
+    bond_help = handle_bond_command(text)
+    if bond_help is not None:
+        print(bond_help)
         return
 
-    if _CALC_HELP_RE.match(text.strip()):
-        print(_CALC_HELP_TEXT)
+    mctx_help = handle_mctx_command(text)
+    if mctx_help is not None:
+        print(mctx_help)
+        return
+
+    calc_help = handle_calc_command(text)
+    if calc_help is not None:
+        print(calc_help)
         return
 
     # Check for slash commands before routing to planner
@@ -431,17 +610,24 @@ def _handle_local_command(
     """Handle pricing/session commands locally. Returns True if handled."""
     lowered = text.strip().lower()
 
-    # Check for no-argument help requests
-    if _BOND_HELP_RE.match(text.strip()):
-        print(_BOND_HELP_TEXT)
+    cache_result = handle_runtime_toggle_commands(text)
+    if cache_result is not None:
+        print(cache_result)
         return True
 
-    if _MCTX_HELP_RE.match(text.strip()):
-        print(_MCTX_HELP_TEXT)
+    bond_help = handle_bond_command(text)
+    if bond_help is not None:
+        print(bond_help)
         return True
 
-    if _CALC_HELP_RE.match(text.strip()):
-        print(_CALC_HELP_TEXT)
+    mctx_help = handle_mctx_command(text)
+    if mctx_help is not None:
+        print(mctx_help)
+        return True
+
+    calc_help = handle_calc_command(text)
+    if calc_help is not None:
+        print(calc_help)
         return True
 
     if lowered in ("help", "?"):
@@ -620,6 +806,7 @@ async def _interactive(
 
 async def _amain(args: argparse.Namespace) -> None:
     load_settings(args.config)
+    load_runtime_settings()
     app = get_settings()
     app.ensure_dirs()
     cache_mgr = CacheManager(app)
@@ -652,6 +839,7 @@ async def _amain(args: argparse.Namespace) -> None:
                 force_rule=args.rule,
             )
     finally:
+        save_runtime_settings()
         cache_mgr.close()
 
 

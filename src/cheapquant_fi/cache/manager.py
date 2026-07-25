@@ -157,7 +157,11 @@ class CacheManager:
     def close(self) -> None:
         if self._backend is not None:
             self._backend.close()
+            self._backend = None
         self._registry.close()
+        from cheapquant_fi.cache.session_finalize import finalize_quant_cache_session
+
+        finalize_quant_cache_session(self.settings)
 
     @classmethod
     def from_yaml(cls, path: Path | str, settings: AppSettings | None = None) -> "CacheManager":

@@ -148,22 +148,18 @@ paths:
   quant_cache_db: ./data/cache/active_cache.db
   quant_cache_semantics: ./semantics
   sessions_dir: ./data/sessions
-
-settings:
-  write_to_bond_analytics_db: true
 ```
 - **ycs_db** — read-only DuckDB or SQLite database with yield curves (zero rates and par rates) and spot FX rates
 - **ycs_semantics** — YAML profile describing ycs_data schema for mcp-data
 - **bond_analytics_db** — DuckDB or SQLite for bond analytics (historical analytics DB)
 - **quant_cache_db** — writable SQLite where framecache stores results
 - **quant_cache_semantics** — YAML profiles for cache tables
-- **write_to_bond_analytics_db** — whether to persist analytics into the bond analytics DB
 
 ### Environment Variables
 - **`ANTHROPIC_API_KEY`** — Claude API key; enables LLM mode
 - **`CQFI_CONFIG`** — override default config path
 - **`CQFI_YCS_DB`, `CQFI_YCS_SEMANTICS`, `CQFI_BOND_ANALYTICS_DB`, `CQFI_QUANT_CACHE_DB`, etc.** — optional per-path overrides in `.env`
-- **`CQFI_WRITE_TO_BOND_ANALYTICS_DB`** — override `settings.write_to_bond_analytics_db`
+- **`CQFI_RUNTIME_CONFIG`** — override path to runtime JSON (`~/.cqfi/cqfi_runtime.json`)
 - **`CQFI_LANGSMITH`** — set to `1` to enable LangSmith tracing (normally off to avoid 403 noise)
 
 ### `.env` File

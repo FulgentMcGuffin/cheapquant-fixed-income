@@ -56,6 +56,24 @@ def _semantics_dir_from_value(value: str | Path) -> Path:
     return _resolve_path(path)
 
 
+def _assert_distinct_paths(
+    config_path: Path,
+    *,
+    kind: str,
+    paths: dict[str, Path],
+) -> None:
+    """Require resolved paths to be unique; report the first duplicate pair."""
+    by_resolved: dict[Path, list[str]] = {}
+    for name, path in paths.items():
+        by_resolved.setdefault(path.resolve(), []).append(name)
+    for resolved, names in by_resolved.items():
+        if len(names) > 1:
+            raise ValueError(
+                f"Config {config_path}: {names[0]} and {names[1]} are the same "
+                f"({kind} path: {resolved})"
+            )
+
+
 def _parse_bool(value: object) -> bool:
     if isinstance(value, bool):
         return value
@@ -74,8 +92,6 @@ class RuntimeSettings:
 
     use_quant_cache: bool = False
     save_quant_cache_to_bond_analytics_after_session: bool = False
-    clear_quant_cache_after_session: bool = False
-    restore_quant_cache_at_session_start: bool = False
 
     def update(self, **kwargs: object) -> None:
         """Update known fields in place (unknown keys are ignored)."""
@@ -205,7 +221,6 @@ class AppSettings:
     quant_cache_semantics_path: Path
     sessions_dir: Path
     mcp_datasets: dict[str, DatasetConfig]
-    write_to_bond_analytics_db: bool = False
 
     @property
     def ycs_dataset(self) -> str:
@@ -234,21 +249,8 @@ class AppSettings:
         if not isinstance(paths, dict):
             raise ValueError(f"Config {config_path} must contain a 'paths' mapping.")
 
-        settings = data.get("settings") or {}
-        if not isinstance(settings, dict):
-            raise ValueError(f"Config {config_path} 'settings' must be a mapping.")
-
         def _get(key: str, env_key: str, default: str | None = None) -> str:
             return os.environ.get(env_key) or str(paths.get(key, default or ""))
-
-        def _get_bool(key: str, env_key: str, default: bool = False) -> bool:
-            env_val = os.environ.get(env_key)
-            if env_val is not None and env_val.strip():
-                return _parse_bool(env_val)
-            yaml_val = settings.get(key)
-            if yaml_val is not None:
-                return _parse_bool(yaml_val)
-            return default
 
         ycs_db = _get("ycs_db", "CQFI_YCS_DB")
         ycs_semantics = _get("ycs_semantics", "CQFI_YCS_SEMANTICS")
@@ -261,9 +263,6 @@ class AppSettings:
             "quant_cache_semantics", "CQFI_QUANT_CACHE_SEMANTICS"
         )
         sessions = _get("sessions_dir", "CQFI_SESSIONS_DIR")
-        write_to_bond_analytics_db = _get_bool(
-            "write_to_bond_analytics_db", "CQFI_WRITE_TO_BOND_ANALYTICS_DB"
-        )
 
         missing = [
             name
@@ -286,10 +285,30 @@ class AppSettings:
         ycs_db_path = _resolve_path(ycs_db)
         bond_analytics_db_path = _resolve_path(bond_analytics_db)
         quant_cache_db_path = _resolve_path(quant_cache_db)
+        ycs_semantics_path = _resolve_path(ycs_semantics)
         quant_cache_semantics_dir = _semantics_dir_from_value(quant_cache_semantics)
         quant_cache_semantics_path = _resolve_path(quant_cache_semantics)
         bond_analytics_semantics_dir = _semantics_dir_from_value(bond_analytics_semantics)
         bond_analytics_semantics_path = _resolve_path(bond_analytics_semantics)
+
+        _assert_distinct_paths(
+            config_path,
+            kind="database",
+            paths={
+                "ycs_db": ycs_db_path,
+                "bond_analytics_db": bond_analytics_db_path,
+                "quant_cache_db": quant_cache_db_path,
+            },
+        )
+        _assert_distinct_paths(
+            config_path,
+            kind="semantics",
+            paths={
+                "ycs_semantics": ycs_semantics_path,
+                "bond_analytics_semantics": bond_analytics_semantics_path,
+                "quant_cache_semantics": quant_cache_semantics_path,
+            },
+        )
 
         mcp_datasets: dict[str, DatasetConfig] = {
             "input": DatasetConfig(
@@ -340,7 +359,6 @@ class AppSettings:
             quant_cache_semantics_path=quant_cache_semantics_path,
             sessions_dir=_resolve_path(sessions),
             mcp_datasets=mcp_datasets,
-            write_to_bond_analytics_db=write_to_bond_analytics_db,
         )
 
     def ensure_dirs(self) -> None:

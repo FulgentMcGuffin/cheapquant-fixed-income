@@ -106,8 +106,6 @@ paths:
   quant_cache_db: {db_path.as_posix()}
   quant_cache_semantics: {semantics_dst.as_posix()}
   sessions_dir: {sessions.as_posix()}
-settings:
-  write_to_bond_analytics_db: false
 """,
         encoding="utf-8",
     )

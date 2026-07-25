@@ -322,10 +322,38 @@ class LlmWorker(QObject):
 
     @Slot(str)
     def run_query(self, query: str) -> None:
-        from cheapquant_fi.agent.cli import _BARE_MENTION_RE, _BOND_RE, _MCTX_RE
+        from cheapquant_fi.agent.cli import (
+            _BARE_MENTION_RE,
+            _BOND_RE,
+            _MCTX_RE,
+            handle_bond_command,
+            handle_calc_command,
+            handle_mctx_command,
+            handle_runtime_toggle_commands,
+        )
         from cheapquant_fi.cli_tools import check_market_context, get_bond
 
         text = query.strip()
+
+        cache_result = handle_runtime_toggle_commands(text)
+        if cache_result is not None:
+            self.finished.emit(cache_result, None)
+            return
+
+        bond_help = handle_bond_command(text)
+        if bond_help is not None:
+            self.finished.emit(bond_help, None)
+            return
+
+        mctx_help = handle_mctx_command(text)
+        if mctx_help is not None:
+            self.finished.emit(mctx_help, None)
+            return
+
+        calc_help = handle_calc_command(text)
+        if calc_help is not None:
+            self.finished.emit(calc_help, None)
+            return
 
         # Check for bare mention shortcut: @id
         bare_match = _BARE_MENTION_RE.match(text)
@@ -920,7 +948,10 @@ class ChatDialog(QMainWindow):
         clipboard.setImage(image)
 
     def closeEvent(self, event: QCloseEvent) -> None:
+        from cheapquant_fi.config import save_runtime_settings
+
         save_settings(self._settings)
+        save_runtime_settings()
         if self._worker_thread.isRunning():
             self._worker_thread.quit()
             self._worker_thread.wait(2000)

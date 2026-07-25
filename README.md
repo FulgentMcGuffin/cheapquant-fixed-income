@@ -58,9 +58,9 @@ the GUI) renders tables and charts from the result.
 - **Plug-in user tools** — register custom Python callables as agent tools
   alongside the built-in QuantLib and SQL paths.
 
-- **Full analytics persistence** — write computed `bond_analytics` / `cmt_analytics`
-  rows to the bond analytics DB on every run (schema and build script exist;
-  runtime persistence is controlled by `settings.write_to_bond_analytics_db`).
+- **Full analytics persistence** — `/cache` and `/save_cache` runtime toggles
+  (see `~/.cqfi/cqfi_runtime.json`) control writing to `quant_cache_db` and
+  merging into `bond_analytics_db` on session exit.
 
 ### Interfaces
 
@@ -92,7 +92,8 @@ Optional per-path overrides live in `.env` (see `.env.example`).
 | Active cache | `paths.quant_cache_db` | `D:/data/duckdb/quant_cache.duckdb` |
 | Sessions | `paths.sessions_dir` | `./data/sessions/` |
 | Cache semantics | `paths.quant_cache_semantics` | `./semantics/quant_cache.yaml` |
-| Write analytics to bond DB | `settings.write_to_bond_analytics_db` | `true` |
+
+Runtime cache behaviour (`use_quant_cache`, `save_quant_cache_to_bond_analytics_after_session`, etc.) is stored in `~/.cqfi/cqfi_runtime.json` and toggled with `/cache` and `/save_cache`.
 
 Build or refresh the bond analytics database (schema + CSV seed data):
 

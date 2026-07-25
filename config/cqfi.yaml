@@ -30,6 +30,3 @@ paths:
   quant_cache_db: D:/data/duckdb/quant_cache.duckdb
   quant_cache_semantics: ./semantics/quant_cache.yaml
   sessions_dir: ./data/sessions
-
-settings:
-  write_to_bond_analytics_db: true

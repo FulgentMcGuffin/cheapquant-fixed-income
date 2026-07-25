@@ -35,7 +35,9 @@ configure_langsmith()
 
 from cheapquant_fi.config import (  # noqa: E402
     DEFAULT_CONFIG_PATH,
+    load_runtime_settings,
     load_settings,
+    save_runtime_settings,
 )
 
 # Resolved at import time so they are available to helpers below.
@@ -81,6 +83,7 @@ def main() -> None:
     config_path: str | Path | None = args.config or os.environ.get("CQFI_CONFIG")
 
     app_settings = load_settings(config_path)
+    load_runtime_settings()
     app_settings.ensure_dirs()
 
     # sys.path must be extended before any gui-module import.
@@ -101,7 +104,14 @@ def main() -> None:
 
     window = ChatDialog(app_settings=app_settings)
     window.show()
-    sys.exit(qt_app.exec())
+    try:
+        sys.exit(qt_app.exec())
+    finally:
+        from cheapquant_fi.cache.session_finalize import finalize_quant_cache_session
+        from cheapquant_fi.config import get_settings
+
+        finalize_quant_cache_session(get_settings())
+        save_runtime_settings()
 
 
 if __name__ == "__main__":
