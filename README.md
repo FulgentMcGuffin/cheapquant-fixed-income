@@ -353,31 +353,6 @@ print(cmt_metrics.par_yield)
 
 CLI equivalent: `/calc DEU 10y2y 2024-01-15`
 
-## Tenor strings
-
-Human-readable tenors are parsed by the `Tenor` class (`tenor.py`). Forward-starting
-**composite tenors** (used by `/calc <issuer> <composite_tenor>` and
-`CmtAnalyticsInput`) combine a starting delay and a forward period via
-`CompositeTenor` (`composite_tenor.py`):
-
-```python
-from datetime import date
-
-from cheapquant_fi.composite_tenor import CompositeTenor
-from cheapquant_fi.tenor import Tenor
-
-t = Tenor.parse("12y4M3w12d")
-t.simplify()
-t.add_to(date(2024, 1, 15))
-t.days_tenor(date(2024, 1, 31))
-
-# Combined strings: immediate 5y, or 10y forward start + 2y forward (→ 12y total)
-ct = CompositeTenor.from_combined_tenor("DEU", "10y2y")
-str(ct)   # e.g. deu10y2y
-```
-
-`NumericTermStructure` maps tenor labels to numeric rates for carry calculations.
-
 ## Curve interpolation methods
 
 Pass `interpolation=QLZeroInterp.<METHOD>` to `ql_build_zero_curve` /
