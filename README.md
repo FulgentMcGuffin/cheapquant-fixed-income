@@ -107,8 +107,6 @@ with `CQFI_RUNTIME_CONFIG`). Values load on startup and save on exit.
 | `use_quant_cache` | `/cache on\|off` | Write `/calc` results to `quant_cache_db` during the session |
 | `save_quant_cache_to_bond_analytics_after_session` | `/save_cache on\|off` | On exit: merge cache rows into `bond_analytics_db`, or delete cache rows only |
 
-Bare `/cache` or `/save_cache` shows help and the current value.
-
 Build or refresh the bond analytics database (schema + CSV seed data):
 
 ```powershell
@@ -132,7 +130,7 @@ cqfi> bond_analytics: show bonds for France maturing after 2030
 ```
 
 Prefixes are optional when the question clearly targets one dataset (e.g.
-“zero rate” → `input:`, “cached analytics” → `cache:`, “bond universe” →
+"zero rate" → `input:`, "cached analytics" → `cache:`, "bond universe" →
 `bond_analytics:`).
 
 ### Direct commands
@@ -331,41 +329,30 @@ Pass `interpolation=QLZeroInterp.<METHOD>` to `ql_build_zero_curve` /
 
 ## Architecture
 
-```
-┌──────────────────────────────────────────────────────────────────────────┐
-│                         User (cqfi / cqfi-gui)                           │
-└─────────────────────────────────┬────────────────────────────────────────┘
-                                  │
-          ┌───────────────────────┼───────────────────────┐
-          ▼                       ▼                       ▼
-   Direct commands          LLM agent              Rule-based SQL
-   (price cmt, /bond,      (mcp-data +            (tables, schema,
-    /mctx, /calc,           extra tools)            sql: SELECT …)
-    /cache, save/load)
-          │                       │                       │
-          └───────────────────────┼───────────────────────┘
-                                  ▼
-                         ┌────────────────┐
-                         │  Query router  │  input / cache / bond_analytics
-                         └────────┬───────┘
-                                  │
-     ┌────────────────────────────┼────────────────────────────┐
-     ▼                            ▼                            ▼
- ycs_data                   bond_analytics_db              quant_cache_db
- (read-only curves)         (bond_universe,                (session bond_analytics,
-                             durable analytics)             cmt_analytics; optional
-     │                            ▲                         framecache blobs*)
-     │                            │ merge on exit            │
-     │                     (save_cache on)                   │
-     └──────────────┬─────────────┴──────────────┬───────────┘
-                    ▼                            ▼
-         QuantlibMarketContextManager    CacheManager + CacheRegistry
-                    │                   (sessions, @cache_bond_analytics)
-                    ▼
-         QuantLibAnalyticsCalculator
-         (curves, CMT pricing, bond + mm-CMT analytics)
-
-* framecache blob store is available when quant_cache_db is SQLite, not DuckDB
+```mermaid
+flowchart TD
+    User["👤 User<br/>cqfi / cqfi-gui"]
+    
+    User -->|Direct commands| DCmd["Direct Commands<br/>price cmt, /bond,<br/>/mctx, /calc,<br/>/cache, save/load"]
+    User -->|LLM queries| LLM["LLM Agent<br/>mcp-data +<br/>extra tools"]
+    User -->|Rule syntax| Rules["Rule-based SQL<br/>tables, schema,<br/>sql: SELECT"]
+    
+    DCmd --> Router["🔀 Query Router<br/>input / cache / bond_analytics"]
+    LLM --> Router
+    Rules --> Router
+    
+    Router --> YCS["📊 ycs_data<br/>read-only curves"]
+    Router --> Bond["📚 bond_analytics_db<br/>bond_universe,<br/>durable analytics"]
+    Router --> Cache["⚡ quant_cache_db<br/>session analytics,<br/>cmt_analytics"]
+    
+    YCS --> MktCtx["🌍 QuantlibMarketContextManager<br/>curves, FX, context"]
+    Bond --> MktCtx
+    Cache --> CacheMgr["💾 CacheManager<br/>sessions,<br/>@cache_bond_analytics"]
+    
+    MktCtx --> Calc["🧮 QuantLibAnalyticsCalculator<br/>pricing, analytics, CMT"]
+    CacheMgr --> Calc
+    
+    Calc --> Result["✅ Results<br/>metrics, prices,<br/>analytics"]
 ```
 
 **Configuration layers:**
