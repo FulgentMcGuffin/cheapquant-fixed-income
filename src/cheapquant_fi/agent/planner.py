@@ -7,6 +7,8 @@ import re
 
 from mcp_data.client.planner import Planner, RuleBasedPlanner, ToolCall
 
+from cheapquant_fi.cli_tools import parse_calc_command
+
 _LIST_TABLES_RE = re.compile(
     r"\b(?:what|which|show|list|name)\b.*\btables?\b|\btables?\b.*\b(?:exist|available|there)\b",
     re.IGNORECASE,
@@ -21,13 +23,6 @@ _BOND_CMD_RE = re.compile(r"^/bond\s+(?P<id>\S+)$", re.IGNORECASE)
 _MCTX_CMD_RE = re.compile(
     r"^/mctx\s+(?P<date>\d{4}-\d{2}-\d{2}(?:\s+\d{2}:\d{2}:\d{2})?)"
     r"(?:\s+(?P<issuer>\S+))?(?:\s+(?P<curve_label>\S+))?$",
-    re.IGNORECASE,
-)
-_CALC_CMD_RE = re.compile(
-    r"^/calc\s+@?(?P<bond_id>\S+)"
-    r"(?:\s+(?P<trade_date>\d{4}-\d{2}-\d{2}))?"
-    r"(?:\s+(?P<curve_label>\S+))?"
-    r"(?:\s+(?P<numeric_term_structure>\{.*\}))?$",
     re.IGNORECASE,
 )
 
@@ -86,27 +81,30 @@ class CQFIRulePlanner(RuleBasedPlanner):
                 )
             ]
 
-        # Handle /calc command syntax
-        calc_match = _CALC_CMD_RE.match(text)
-        if calc_match and "compute_bond_analytics" in available_tools:
-            bond_id = calc_match.group("bond_id").strip()
-            trade_date = calc_match.group("trade_date")
-            curve_label = calc_match.group("curve_label") or "BOND_ZERO"
-            numeric_term_structure_str = calc_match.group("numeric_term_structure")
+        # Handle /calc command syntax (bond or CMT)
+        calc_parsed = parse_calc_command(text)
+        if calc_parsed is not None and calc_parsed.kind == "cmt":
+            if "compute_cmt_analytics" in available_tools:
+                kwargs = {
+                    "issuer": calc_parsed.issuer,
+                    "composite_tenor": calc_parsed.composite_tenor,
+                    "curve_label": calc_parsed.curve_label,
+                }
+                if calc_parsed.trade_date:
+                    kwargs["trade_date"] = calc_parsed.trade_date
+                return [ToolCall("compute_cmt_analytics", kwargs)]
 
-            kwargs = {
-                "bond_id": bond_id,
-                "curve_label": curve_label,
-            }
-            if trade_date:
-                kwargs["trade_date"] = trade_date.strip()
-            if numeric_term_structure_str:
-                try:
-                    kwargs["numeric_term_structure"] = eval(numeric_term_structure_str)
-                except Exception:
-                    pass
-
-            return [ToolCall("compute_bond_analytics", kwargs)]
+        if calc_parsed is not None and calc_parsed.kind == "bond":
+            if "compute_bond_analytics" in available_tools:
+                kwargs = {
+                    "bond_id": calc_parsed.bond_id,
+                    "curve_label": calc_parsed.curve_label,
+                }
+                if calc_parsed.trade_date:
+                    kwargs["trade_date"] = calc_parsed.trade_date
+                if calc_parsed.numeric_term_structure is not None:
+                    kwargs["numeric_term_structure"] = calc_parsed.numeric_term_structure
+                return [ToolCall("compute_bond_analytics", kwargs)]
 
         return []
 

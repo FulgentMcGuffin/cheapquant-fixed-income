@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date
 
+from cheapquant_fi.composite_tenor import CompositeTenor
 from cheapquant_fi.issuers import ISSUERS
 from cheapquant_fi.instruments import Bond
 from cheapquant_fi.numeric_term_structure import NumericTermStructure
@@ -70,17 +71,22 @@ class BondAnalyticsInput:
 
 @dataclass(frozen=True)
 class CmtAnalyticsInput:
-    """Inputs required to price a synthetic constant-maturity treasury.
-
-    When *coupon* is ``None`` the CMT is zero-coupon (default).  Set *coupon*
-    to a percentage (e.g. ``2.5`` for 2.5 %) to price a fixed-coupon CMT with
-    the issuer's payment frequency.
-    """
+    """Inputs required to price a synthetic constant-maturity treasury from a curve."""
 
     issuer: str
-    tenor_label: str
-    settlement_date: date
+    composite_tenor: CompositeTenor
     trade_date: date | None = None
-    coupon: float | None = None
-    input_column: str | None = None
-    input_value: float | None = None
+
+    @classmethod
+    def from_string(
+        cls,
+        issuer: str,
+        combined_tenor: str,
+        trade_date: date | None = None,
+    ) -> CmtAnalyticsInput:
+        composite = CompositeTenor.from_combined_tenor(issuer, combined_tenor)
+        return cls(
+            issuer=composite.issuer_profile.source_code,
+            composite_tenor=composite,
+            trade_date=trade_date,
+        )

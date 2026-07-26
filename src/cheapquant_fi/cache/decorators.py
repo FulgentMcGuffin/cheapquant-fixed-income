@@ -6,7 +6,7 @@ import functools
 from collections.abc import Callable
 from typing import Any, TypeVar
 
-from cheapquant_fi.analytics_input import BondAnalyticsInput
+from cheapquant_fi.analytics_input import BondAnalyticsInput, CmtAnalyticsInput
 from cheapquant_fi.analytics_output import FixedIncomeAnalyticsOutput
 from cheapquant_fi.cache.registry import get_cache_registry
 from cheapquant_fi.config import get_runtime_settings
@@ -58,5 +58,44 @@ def cache_bond_analytics(fn: F) -> F:
             mm_fc_cmt_metrics=mm_fc,
         )
         return bond_metrics, mm_cmt, mm_fc
+
+    return wrapper  # type: ignore[return-value]
+
+
+def cache_cmt_analytics(fn: F) -> F:
+    """Persist ``compute_cmt_analytics`` output when ``use_quant_cache`` is true.
+
+    Expects a single :class:`FixedIncomeAnalyticsOutput` and a
+    :class:`CmtAnalyticsInput` as the first positional arg after ``self``.
+    """
+
+    @functools.wraps(fn)
+    def wrapper(
+        self: Any,
+        request: CmtAnalyticsInput,
+        market: Any = None,
+        *args: Any,
+        curve_label: str = "BOND_ZERO",
+        **kwargs: Any,
+    ) -> FixedIncomeAnalyticsOutput:
+        result: FixedIncomeAnalyticsOutput = fn(
+            self, request, market, *args, curve_label=curve_label, **kwargs
+        )
+        if not get_runtime_settings().use_quant_cache:
+            return result
+        if result is None:
+            return result
+
+        anchor = self._cmt_anchor_date(request, market)
+        registry = get_cache_registry()
+        registry.persist_cmt_compute(
+            owner=type(self).__name__,
+            method=fn.__name__,
+            request=request,
+            metrics=result,
+            curve_label=curve_label,
+            anchor_date=anchor,
+        )
+        return result
 
     return wrapper  # type: ignore[return-value]

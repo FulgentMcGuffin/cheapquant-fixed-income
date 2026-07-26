@@ -10,7 +10,7 @@ from typing import Any
 
 import yaml
 
-from cheapquant_fi.analytics_input import BondAnalyticsInput
+from cheapquant_fi.analytics_input import BondAnalyticsInput, CmtAnalyticsInput
 from cheapquant_fi.analytics_output import FixedIncomeAnalyticsOutput
 
 # Tables we materialise from quant_cache.yaml (session analytics, not framecache blobs).
@@ -178,7 +178,7 @@ class CacheRegistry:
                 request=request,
                 metrics=mm_cmt_metrics,
                 coupon=bond_metrics.par_yield,
-                is_fixed_coupon=1,
+                is_fixed_coupon=0,
                 tenor_label=tenor_label,
                 created_at=created_at,
                 trade_date=trade_date,
@@ -224,6 +224,57 @@ class CacheRegistry:
         bond_row["mm_fc_cmt_analytic_id"] = mm_fc_id
         self._insert_row("bond_analytics", bond_row)
         return bond_metrics
+
+    def persist_cmt_compute(
+        self,
+        *,
+        owner: str,
+        method: str,
+        request: CmtAnalyticsInput,
+        metrics: FixedIncomeAnalyticsOutput,
+        curve_label: str,
+        anchor_date: date,
+    ) -> FixedIncomeAnalyticsOutput:
+        """Write a standalone CMT analytics row from ``compute_cmt_analytics``."""
+        _ = owner, method  # reserved for future calculation_log linkage
+        composite = request.composite_tenor
+        issuer = composite.issuer_profile.source_code
+        tenor_label = str(composite)
+
+        forward_start = composite.forward_start_date(anchor_date)
+        forward_end = composite.forward_end_date(anchor_date)
+        if isinstance(forward_start, datetime):
+            forward_start = forward_start.date()
+        if isinstance(forward_end, datetime):
+            forward_end = forward_end.date()
+
+        trade_date = (request.trade_date or anchor_date).isoformat()
+        settlement_date = forward_start.isoformat()
+        maturity_date = forward_end.isoformat()
+        created_at = utc_now_ms()
+        cmt_analytic_id = join_id(issuer, tenor_label, short_id())
+        coupon = (
+            metrics.par_yield
+            if metrics.par_yield is not None
+            else metrics.yield_to_maturity
+        )
+
+        row = {
+            "cmt_analytic_id": cmt_analytic_id,
+            "issuer": issuer,
+            "tenor_label": tenor_label,
+            "created_at": created_at,
+            "trade_date": trade_date,
+            "settlement_date": settlement_date,
+            "coupon": coupon,
+            "is_fixed_coupon": 0,
+            "maturity_date": maturity_date,
+            "curve_used": 1,
+            "curve_settings": curve_label,
+            **metrics.as_dict(only_populated=True),
+        }
+        self._insert_row("cmt_analytics", row)
+        return metrics
 
     def _insert_cmt_row(
         self,

@@ -461,3 +461,30 @@ def test_maturity_matched_cmt_schedule_is_unadjusted(calculator):
     assert maturity in coupon_dates
     assert maturity.weekday() == ql.Saturday
 
+
+# ---------------------------------------------------------------------------
+# Composite-tenor CMT analytics
+# ---------------------------------------------------------------------------
+
+
+def test_compute_cmt_analytics_spot_tenor_prices_at_par(deu_flat_market, calculator):
+    request = CmtAnalyticsInput.from_string("DEU", "5y", trade_date=_VAL_DATE)
+    result = calculator.compute_cmt_analytics(request, deu_flat_market)
+    assert result.clean_price == pytest.approx(100.0, abs=0.05)
+    assert result.par_yield == pytest.approx(_FLAT_RATE_PCT, abs=0.15)
+    assert result.yield_to_maturity == pytest.approx(_FLAT_RATE_PCT, abs=0.15)
+
+
+def test_compute_cmt_analytics_forward_start_prices_at_par(deu_flat_market, calculator):
+    request = CmtAnalyticsInput.from_string("DEU", "2y5y", trade_date=_VAL_DATE)
+    result = calculator.compute_cmt_analytics(request, deu_flat_market)
+    assert result.clean_price == pytest.approx(100.0, abs=0.05)
+    assert result.par_yield is not None
+    assert result.yield_to_maturity is not None
+
+
+def test_compute_cmt_analytics_requires_market(calculator):
+    request = CmtAnalyticsInput.from_string("DEU", "5y", trade_date=_VAL_DATE)
+    with pytest.raises(ValueError, match="market is required"):
+        calculator.compute_cmt_analytics(request, None)
+

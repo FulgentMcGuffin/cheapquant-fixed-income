@@ -331,7 +331,13 @@ class LlmWorker(QObject):
             handle_mctx_command,
             handle_runtime_toggle_commands,
         )
-        from cheapquant_fi.cli_tools import check_market_context, get_bond
+        from cheapquant_fi.cli_tools import (
+            check_market_context,
+            execute_parsed_calc,
+            format_calc_result,
+            get_bond,
+            parse_calc_command,
+        )
 
         text = query.strip()
 
@@ -395,6 +401,15 @@ class LlmWorker(QObject):
                 answer = result.get("message", str(result))
             except Exception as exc:
                 answer = f"Market context error: {exc}"
+            self.finished.emit(answer, None)
+            return
+
+        calc_parsed = parse_calc_command(text)
+        if calc_parsed is not None and calc_parsed.kind in ("bond", "cmt"):
+            try:
+                answer = format_calc_result(execute_parsed_calc(calc_parsed))
+            except Exception as exc:
+                answer = f"Analytics error: {exc}"
             self.finished.emit(answer, None)
             return
 

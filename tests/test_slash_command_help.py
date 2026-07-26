@@ -50,20 +50,23 @@ def test_mctx_valid_not_handled():
 def test_calc_bare_shows_help():
     result = handle_calc_command("/calc")
     assert result is not None
-    assert "Bond Analytics Calculation" in result
+    assert "Bond and CMT Analytics Calculation" in result
     assert "/calc <bond_id>" in result
+    assert "/calc <issuer> <composite_tenor>" in result
 
 
 def test_calc_invalid_shows_help():
     result = handle_calc_command("/calc foo 2024-01-15 BOND_ZERO {bad")
     assert result is not None
     assert "Invalid /calc command" in result
-    assert "Bond Analytics Calculation" in result
+    assert "Bond and CMT Analytics Calculation" in result
 
 
 def test_calc_valid_not_handled():
     assert handle_calc_command("/calc fraapr029") is None
     assert handle_calc_command("/calc usa10y001 2024-02-15 BOND_ZERO") is None
+    assert handle_calc_command("/calc DEU 5y") is None
+    assert handle_calc_command("/calc FRA 10y2y 2024-02-15") is None
 
 
 def test_unrelated_commands_not_handled():

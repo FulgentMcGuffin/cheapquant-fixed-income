@@ -42,15 +42,25 @@ from cheapquant_fi.cli_tools import (
     check_market_context_lc_tool,
     compute_bond_analytics,
     compute_bond_analytics_lc_tool,
+    compute_cmt_analytics,
+    compute_cmt_analytics_lc_tool,
+    execute_parsed_calc,
+    format_calc_result,
     get_bond,
     get_bond_lc_tool,
+    parse_calc_command,
     resolve_bond_mentions,
 )
 
 # Real, executable LangChain tools bound into SQLAgent/LLMPlanner alongside the
 # built-in SQL tools, so the LLM can genuinely call them (not just read a text
 # description) -- see cheapquant_fi.cli_tools.
-EXTRA_TOOLS = [get_bond_lc_tool, check_market_context_lc_tool, compute_bond_analytics_lc_tool]
+EXTRA_TOOLS = [
+    get_bond_lc_tool,
+    check_market_context_lc_tool,
+    compute_bond_analytics_lc_tool,
+    compute_cmt_analytics_lc_tool,
+]
 
 
 @dataclass(frozen=True)
@@ -97,13 +107,17 @@ HELP_TEXT_CQFI = (
     "  /save_cache      — show help and current save_quant_cache_to_bond_analytics_after_session setting\n"
     "\n"
     "Bond analytics commands:\n"
-    "  /calc <id> [date] [curve] [term_structure]  — compute bond analytics\n"
-    "    id: bond_friendly_id or bond_id (required)\n"
-    "    date: YYYY-MM-DD (optional, defaults to latest available date)\n"
-    "    curve: curve label (optional, defaults to BOND_ZERO)\n"
-    "    term_structure: JSON dict of tenors to rates (optional)\n"
+    "  /calc <bond_id> [date] [curve] [term_structure]  — compute bond analytics\n"
+    "  /calc <issuer> <composite_tenor> [date]          — compute CMT analytics\n"
+    "    bond id: bond_friendly_id or bond_id\n"
+    "    issuer + composite_tenor: e.g. DEU 5y, FRA 10y2y, DEU 18m4w9m4d\n"
+    "    date: YYYY-MM-DD (optional, defaults to latest zero_rates date)\n"
+    "    curve: curve label for bond calc (optional, defaults to BOND_ZERO)\n"
+    "    term_structure: JSON dict of tenors to rates (optional, bond calc only)\n"
     "    Examples: /calc fraapr029\n"
     "              /calc usa10y001 2024-02-15\n"
+    "              /calc DEU 5y\n"
+    "              /calc FRA 10y2y 2024-02-15\n"
     "              /calc @fraapr029 2024-02-15 BOND_ZERO {\"1m\": 2.1, \"3m\": 2.15}\n"
     "    Also available in LLM mode: \"Calculate analytics for fraapr029\"\n"
     "\n"
@@ -143,13 +157,6 @@ _MCTX_RE = re.compile(
 
 _BOND_RE = re.compile(r"^/bond\s+@?(?P<id>\S+)$", re.IGNORECASE)
 _BOND_HELP_RE = re.compile(r"^/bond\s*$", re.IGNORECASE)
-_CALC_RE = re.compile(
-    r"^/calc\s+@?(?P<bond_id>\S+)"
-    r"(?:\s+(?P<trade_date>\d{4}-\d{2}-\d{2}))?"
-    r"(?:\s+(?P<curve_label>\S+))?"
-    r"(?:\s+(?P<numeric_term_structure>\{.*\}))?$",
-    re.IGNORECASE,
-)
 _CALC_HELP_RE = re.compile(r"^/calc\s*$", re.IGNORECASE)
 _MCTX_HELP_RE = re.compile(r"^/mctx\s*$", re.IGNORECASE)
 _CACHE_HELP_RE = re.compile(r"^/cache\s*$", re.IGNORECASE)
@@ -227,21 +234,32 @@ _SAVE_CACHE_HELP_TEXT = (
 )
 
 _CALC_HELP_TEXT = (
-    "Bond Analytics Calculation\n"
-    "==========================\n"
+    "Bond and CMT Analytics Calculation\n"
+    "==================================\n"
     "\n"
-    "The /calc command computes fixed-income analytics for a bond given market conditions.\n"
-    "This includes yield-to-maturity, duration, convexity, roll-down, carry, and other metrics.\n"
+    "The /calc command computes fixed-income analytics from market curves.\n"
     "\n"
-    "Arguments: /calc <bond_id> [trade_date] [curve_label] [numeric_term_structure]\n"
-    "  <bond_id>: Bond identifier — user_friendly_id or bond_id (required)\n"
-    "  [trade_date]: Valuation date in YYYY-MM-DD format (optional, defaults to latest available)\n"
-    "  [curve_label]: Curve collection (BOND_ZERO or BOND_PAR, defaults to BOND_ZERO)\n"
-    "  [numeric_term_structure]: JSON dict of repo rates (optional, for programmatic use)\n"
+    "Bond form:\n"
+    "  /calc <bond_id> [trade_date] [curve_label] [numeric_term_structure]\n"
+    "  Includes yield-to-maturity, duration, convexity, roll-down, carry, and more.\n"
+    "\n"
+    "CMT form:\n"
+    "  /calc <issuer> <composite_tenor> [trade_date]\n"
+    "  Prices a forward-starting constant-maturity treasury at par on the curve.\n"
+    "  composite_tenor examples: 5y, 10y2y, 18m4w9m4d\n"
+    "\n"
+    "Arguments:\n"
+    "  <bond_id>: user_friendly_id or bond_id\n"
+    "  <issuer>: valid issuer code or alias (DEU, FRA, usa, …)\n"
+    "  [trade_date]: YYYY-MM-DD (optional; defaults to latest zero_rates date)\n"
+    "  [curve_label]: BOND_ZERO or BOND_PAR (bond form only, default BOND_ZERO)\n"
+    "  [numeric_term_structure]: JSON repo rates (bond form only)\n"
     "\n"
     "Examples:\n"
-    "  /calc fraapr029           — Calculate analytics for FRA APR 2029 bond\n"
-    "  /calc usa10y001 2024-02-15 BOND_ZERO  — Calculate for US 10Y on specific date\n"
+    "  /calc fraapr029                    — bond analytics\n"
+    "  /calc usa10y001 2024-02-15         — bond on a specific date\n"
+    "  /calc DEU 5y                       — 5Y CMT for Germany\n"
+    "  /calc FRA 10y2y 2024-02-15         — forward 10y2y CMT for France\n"
 )
 
 
@@ -396,10 +414,14 @@ def handle_calc_command(text: str) -> str | None:
     stripped = text.strip()
     if _CALC_HELP_RE.match(stripped):
         return _CALC_HELP_TEXT
-    if re.match(r"^/calc\b", stripped, re.IGNORECASE) and not _CALC_RE.match(stripped):
+    parsed = parse_calc_command(stripped)
+    if parsed is None:
+        return None
+    if parsed.kind == "invalid":
         return (
-            "Invalid /calc command. Use /calc <bond_id> "
-            "[trade_date] [curve_label] [numeric_term_structure].\n\n"
+            "Invalid /calc command. Use bond form /calc <bond_id> [trade_date] "
+            "[curve_label] [numeric_term_structure] or CMT form "
+            "/calc <issuer> <composite_tenor> [trade_date].\n\n"
             f"{_CALC_HELP_TEXT}"
         )
     return None
@@ -459,6 +481,19 @@ async def _run_tool_calls(client: DBClient, calls: list[ToolCall]) -> None:
                     print(result["analytics_json"])
                 else:
                     print(_render(result))
+            except Exception as exc:
+                print(f"Tool error: {exc}")
+            continue
+
+        if call.name == "compute_cmt_analytics":
+            try:
+                result = compute_cmt_analytics(
+                    call.arguments.get("issuer", ""),
+                    call.arguments.get("composite_tenor", ""),
+                    trade_date=call.arguments.get("trade_date"),
+                    curve_label=call.arguments.get("curve_label", "BOND_ZERO"),
+                )
+                print(format_calc_result(result))
             except Exception as exc:
                 print(f"Tool error: {exc}")
             continue
@@ -533,32 +568,11 @@ async def _query_dataset(
             print(f"Market context error: {exc}")
         return
 
-    calc_match = _CALC_RE.match(text.strip())
-    if calc_match:
-        bond_id = calc_match.group("bond_id")
-        trade_date = calc_match.group("trade_date")
-        curve_label = calc_match.group("curve_label") or "BOND_ZERO"
-        numeric_term_structure_str = calc_match.group("numeric_term_structure")
-
-        kwargs = {
-            "bond_id": bond_id,
-            "curve_label": curve_label,
-        }
-        if trade_date:
-            kwargs["trade_date"] = trade_date.strip()
-        if numeric_term_structure_str:
-            try:
-                kwargs["numeric_term_structure"] = eval(numeric_term_structure_str)
-            except Exception as e:
-                print(f"Error parsing term structure: {e}")
-                return
-
+    parsed = parse_calc_command(text.strip())
+    if parsed is not None and parsed.kind in ("bond", "cmt"):
         try:
-            result = compute_bond_analytics(**kwargs)
-            if result.get("status") == "success":
-                print(result["analytics_json"])
-            else:
-                print(f"Error: {result.get('message')}")
+            result = execute_parsed_calc(parsed)
+            print(format_calc_result(result))
         except Exception as exc:
             print(f"Analytics error: {exc}")
         return
@@ -594,7 +608,14 @@ async def _query_dataset(
 
         # Add custom tools to available tools list
         tools = list(await client.list_tools())
-        tools.extend(["check_market_context", "get_bond", "compute_bond_analytics"])
+        tools.extend(
+            [
+                "check_market_context",
+                "get_bond",
+                "compute_bond_analytics",
+                "compute_cmt_analytics",
+            ]
+        )
         calls = planner.plan(text, tools)
         if not calls:
             print(f"[{target}] Could not interpret that.\n{RULE_MODE_HINT}")
@@ -723,32 +744,11 @@ def _handle_local_command(
             print(f"Bond error: {exc}")
         return True
 
-    match = _CALC_RE.match(text.strip())
-    if match:
-        bond_id = match.group("bond_id")
-        trade_date = match.group("trade_date")
-        curve_label = match.group("curve_label") or "BOND_ZERO"
-        numeric_term_structure_str = match.group("numeric_term_structure")
-
-        kwargs = {
-            "bond_id": bond_id,
-            "curve_label": curve_label,
-        }
-        if trade_date:
-            kwargs["trade_date"] = trade_date.strip()
-        if numeric_term_structure_str:
-            try:
-                kwargs["numeric_term_structure"] = eval(numeric_term_structure_str)
-            except Exception as e:
-                print(f"Error parsing term structure: {e}")
-                return True
-
+    parsed = parse_calc_command(text.strip())
+    if parsed is not None and parsed.kind in ("bond", "cmt"):
         try:
-            result = compute_bond_analytics(**kwargs)
-            if result.get("status") == "success":
-                print(result["analytics_json"])
-            else:
-                print(f"Error: {result.get('message')}")
+            result = execute_parsed_calc(parsed)
+            print(format_calc_result(result))
         except Exception as exc:
             print(f"Analytics error: {exc}")
         return True

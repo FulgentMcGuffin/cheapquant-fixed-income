@@ -11,9 +11,9 @@ from unittest.mock import MagicMock
 import polars as pl
 import pytest
 
-from cheapquant_fi.analytics_input import BondAnalyticsInput
+from cheapquant_fi.analytics_input import BondAnalyticsInput, CmtAnalyticsInput
 from cheapquant_fi.analytics_output import FixedIncomeAnalyticsOutput
-from cheapquant_fi.cache.decorators import cache_bond_analytics
+from cheapquant_fi.cache.decorators import cache_bond_analytics, cache_cmt_analytics
 from cheapquant_fi.cache.registry import (
     CacheRegistry,
     get_cache_registry,
@@ -423,9 +423,12 @@ def test_compute_bond_analytics_persists_three_rows(
     assert fc_coupon == pytest.approx(3.85)
 
     expected_tenor = CacheRegistry._tenor_label_days(_VAL_DATE, _MATURITY)
+    mm_is_fc = by_id[mm_id][3]
+    fc_is_fc = by_id[mm_fc_id][3]
+    assert mm_is_fc == 0
+    assert fc_is_fc == 1
     for _id, tenor_label, _coupon, is_fc, cmt_curve in cmt_rows:
         assert tenor_label == expected_tenor
-        assert is_fc == 1
         assert cmt_curve == "DEU-BOND_ZERO"
         Tenor.parse(tenor_label)
 
@@ -508,3 +511,141 @@ def test_registry_supports_duckdb(tmp_path: Path):
         reg.close()
     assert n_bond == 1
     assert n_cmt == 1
+
+
+# ---------------------------------------------------------------------------
+# CMT analytics cache
+# ---------------------------------------------------------------------------
+
+
+def test_persist_cmt_compute_row_shape(quant_cache_env):
+    _settings, db_path, semantics = quant_cache_env
+    reg = CacheRegistry(db_path, semantics)
+    request = CmtAnalyticsInput.from_string("DEU", "5y", trade_date=_VAL_DATE)
+    metrics = FixedIncomeAnalyticsOutput(
+        yield_to_maturity=3.85,
+        clean_price=100.0,
+        par_yield=3.85,
+        duration=4.5,
+    )
+    try:
+        reg.persist_cmt_compute(
+            owner="FakeCalc",
+            method="compute_cmt_analytics",
+            request=request,
+            metrics=metrics,
+            curve_label="BOND_ZERO",
+            anchor_date=_VAL_DATE,
+        )
+        conn = _connect(db_path)
+        row = conn.execute(
+            "SELECT cmt_analytic_id, issuer, tenor_label, trade_date, "
+            "settlement_date, maturity_date, coupon, is_fixed_coupon, "
+            "curve_used, curve_settings, clean_price, yield_to_maturity "
+            "FROM cmt_analytics"
+        ).fetchone()
+        conn.close()
+    finally:
+        reg.close()
+
+    cmt_id, issuer, tenor_label, trade_date, settlement, maturity, coupon, is_fc, curve_used, curve_settings, clean, ytm = row
+    assert cmt_id.startswith("DEU-deu5y-")
+    assert len(cmt_id.split("-")[-1]) == 12
+    assert issuer == "DEU"
+    assert tenor_label == "deu5y"
+    assert trade_date == _VAL_DATE.isoformat()
+    assert settlement is not None
+    assert maturity is not None
+    assert coupon == pytest.approx(3.85)
+    assert is_fc == 0
+    assert curve_used == 1
+    assert curve_settings == "BOND_ZERO"
+    assert clean == pytest.approx(100.0)
+    assert ytm == pytest.approx(3.85)
+
+
+def test_cache_cmt_analytics_decorator_calls_registry(monkeypatch, quant_cache_env):
+    _settings, _db_path, _sem = quant_cache_env
+    get_runtime_settings().update(use_quant_cache=True)
+    mock_reg = MagicMock()
+    monkeypatch.setattr(
+        "cheapquant_fi.cache.decorators.get_cache_registry", lambda: mock_reg
+    )
+
+    class FakeCalc:
+        def _cmt_anchor_date(self, request, market):
+            return request.trade_date or _VAL_DATE
+
+        @cache_cmt_analytics
+        def compute_cmt_analytics(self, request, market=None, *, curve_label="BOND_ZERO"):
+            return FixedIncomeAnalyticsOutput(clean_price=100.0, par_yield=3.5)
+
+    req = CmtAnalyticsInput.from_string("DEU", "2y5y", trade_date=_VAL_DATE)
+    FakeCalc().compute_cmt_analytics(req, None, curve_label="BOND_PAR")
+    mock_reg.persist_cmt_compute.assert_called_once()
+    kwargs = mock_reg.persist_cmt_compute.call_args.kwargs
+    assert kwargs["owner"] == "FakeCalc"
+    assert kwargs["method"] == "compute_cmt_analytics"
+    assert kwargs["curve_label"] == "BOND_PAR"
+    assert kwargs["request"] is req
+    assert kwargs["anchor_date"] == _VAL_DATE
+
+
+def test_cache_cmt_analytics_decorator_skips_when_disabled(monkeypatch, quant_cache_env):
+    _settings, _db_path, _sem = quant_cache_env
+    get_runtime_settings().update(use_quant_cache=False)
+    mock_reg = MagicMock()
+    monkeypatch.setattr(
+        "cheapquant_fi.cache.decorators.get_cache_registry", lambda: mock_reg
+    )
+
+    class FakeCalc:
+        def _cmt_anchor_date(self, request, market):
+            return _VAL_DATE
+
+        @cache_cmt_analytics
+        def compute_cmt_analytics(self, request, market=None, *, curve_label="BOND_ZERO"):
+            return FixedIncomeAnalyticsOutput(clean_price=100.0)
+
+    req = CmtAnalyticsInput.from_string("DEU", "5y", trade_date=_VAL_DATE)
+    FakeCalc().compute_cmt_analytics(req)
+    mock_reg.persist_cmt_compute.assert_not_called()
+
+
+def test_compute_cmt_analytics_persists_row(quant_cache_env, calculator, deu_market):
+    _settings, db_path, _sem = quant_cache_env
+    request = CmtAnalyticsInput.from_string("DEU", "5y", trade_date=_VAL_DATE)
+    result = calculator.compute_cmt_analytics(request, deu_market, curve_label="BOND_ZERO")
+    assert result.clean_price == pytest.approx(100.0, abs=0.05)
+
+    conn = _connect(db_path)
+    row = conn.execute(
+        "SELECT cmt_analytic_id, issuer, tenor_label, curve_settings, coupon, "
+        "settlement_date, maturity_date, clean_price "
+        "FROM cmt_analytics"
+    ).fetchone()
+    conn.close()
+
+    cmt_id, issuer, tenor_label, curve_settings, coupon, settlement, maturity, clean = row
+    assert cmt_id.startswith("DEU-deu5y-")
+    assert issuer == "DEU"
+    assert tenor_label == "deu5y"
+    assert curve_settings == "BOND_ZERO"
+    assert coupon == pytest.approx(result.par_yield, abs=0.15)
+    assert clean == pytest.approx(100.0, abs=0.05)
+    assert settlement is not None
+    assert maturity is not None
+
+
+def test_compute_cmt_analytics_skips_persist_when_cache_disabled(
+    quant_cache_env, calculator, deu_market
+):
+    _settings, db_path, _sem = quant_cache_env
+    get_runtime_settings().update(use_quant_cache=False)
+    request = CmtAnalyticsInput.from_string("DEU", "5y", trade_date=_VAL_DATE)
+    calculator.compute_cmt_analytics(request, deu_market)
+    if db_path.exists():
+        conn = _connect(db_path)
+        n = conn.execute("SELECT COUNT(*) FROM cmt_analytics").fetchone()[0]
+        conn.close()
+        assert n == 0

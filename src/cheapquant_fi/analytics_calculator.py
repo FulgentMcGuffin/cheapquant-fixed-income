@@ -23,4 +23,14 @@ class AnalyticsCalculator(Protocol):
         curve_label: str = "BOND_ZERO",
     ) -> tuple[FixedIncomeAnalyticsOutput, FixedIncomeAnalyticsOutput | None, FixedIncomeAnalyticsOutput | None]:
         """Return bond analytics and optional maturity-matched CMT analytics and optional fixed-coupon CMT analytics."""
+        
+    def compute_cmt_analytics(
+        self,
+        request: CmtAnalyticsInput,
+        market: QuantlibMarketContext = None,
+        *,
+        curve_label: str = "BOND_ZERO",        
+    ) -> FixedIncomeAnalyticsOutput:
+        """Return CMT analytics (from Tenor String and Curve)"""
+        
 

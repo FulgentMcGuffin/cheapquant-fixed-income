@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 
 import QuantLib as ql
 
 from cheapquant_fi.analytics_input import BondAnalyticsInput, CmtAnalyticsInput
 from cheapquant_fi.analytics_output import FixedIncomeAnalyticsOutput
-from cheapquant_fi.cache.decorators import cache_bond_analytics
+from cheapquant_fi.cache.decorators import cache_bond_analytics, cache_cmt_analytics
 from cheapquant_fi.issuers import IssuerProfile, resolve_issuer
 from cheapquant_fi.quantlib.quantlib_market_context import QuantlibMarketContext
 from cheapquant_fi.numeric_term_structure import NumericTermStructure
@@ -177,13 +177,47 @@ class QuantLibAnalyticsCalculator:
         return metrics, cmt_metrics, fc_cmt_metrics
 
     def _uses_curve(self, request: BondAnalyticsInput | CmtAnalyticsInput) -> bool:
-        if request.input_column is None:
+        input_column = getattr(request, "input_column", None)
+        if input_column is None:
             return True
         if request.input_value is None:
             raise ValueError(
-                f"input_value is required when input_column={request.input_column!r}"
+                f"input_value is required when input_column={input_column!r}"
             )
         return False
+
+    def _cmt_anchor_date(
+        self,
+        request: CmtAnalyticsInput,
+        market: QuantlibMarketContext,
+    ) -> date:
+        if request.trade_date is not None:
+            return request.trade_date
+        if market.as_of is not None:
+            return market.as_of.date() if isinstance(market.as_of, datetime) else market.as_of
+        raise ValueError(
+            "trade_date is required when the market context has no as_of date"
+        )
+
+    def _par_yield_for_cmt(
+        self,
+        bond: ql.Bond,
+        issuer: IssuerProfile,
+        settlement: ql.Date,
+        curve: ql.YieldTermStructure,
+        *,
+        target_clean: float = 100.0,
+    ) -> float:
+        bond_settlement = _bond_settlement(issuer, settlement)
+        return (
+            ql.BondFunctions.atmRate(
+                bond,
+                curve,
+                bond_settlement,
+                ql.BondPrice(target_clean, ql.BondPrice.Clean),
+            )
+            * 100.0
+        )
 
     def _bond_curve(
         self,
@@ -648,4 +682,78 @@ class QuantLibAnalyticsCalculator:
             gamma_sensitivity=(
                 convexity * clean / 100.0 if convexity is not None else None
             ),
+        )
+
+    @cache_cmt_analytics
+    def compute_cmt_analytics(
+        self,
+        request: CmtAnalyticsInput,
+        market: QuantlibMarketContext = None,
+        *,
+        curve_label: str = "BOND_ZERO",
+    ) -> FixedIncomeAnalyticsOutput:
+        """Price a forward-starting CMT from a :class:`CompositeTenor`.
+
+        The CMT matures at ``forward_end_date`` and is issued at
+        ``forward_start_date`` (both from the composite tenor anchored on
+        ``trade_date``). The coupon is the par yield that sets clean price to
+        100 at forward settlement, using unadjusted CMT conventions.
+
+        When ``use_quant_cache`` is true, :func:`cache_cmt_analytics` persists
+        the result into ``quant_cache_db`` ``cmt_analytics``.
+        """
+        if market is None:
+            raise ValueError("market is required for compute_cmt_analytics")
+
+        composite = request.composite_tenor
+        issuer = composite.issuer_profile
+        cmt_issuer = issuer.as_unadjusted()
+        anchor = self._cmt_anchor_date(request, market)
+
+        forward_start = composite.forward_start_date(anchor)
+        forward_end = composite.forward_end_date(anchor)
+        if isinstance(forward_start, datetime):
+            forward_start = forward_start.date()
+        if isinstance(forward_end, datetime):
+            forward_end = forward_end.date()
+
+        forward_settlement = _to_ql_date(forward_start)
+        forward_maturity = _to_ql_date(forward_end)
+        if forward_maturity <= forward_settlement:
+            raise ValueError(
+                "Forward CMT maturity must be after forward settlement "
+                f"({forward_end} <= {forward_start})"
+            )
+
+        ql.Settings.instance().evaluationDate = forward_settlement
+        curve_handle = self._bond_curve(market, issuer.source_code, curve_label)
+        curve = curve_handle.currentLink()
+
+        placeholder = self._build_maturity_matched_cmt(
+            cmt_issuer,
+            forward_settlement,
+            forward_maturity,
+            0.0,
+        )
+        par_yield = self._par_yield_for_cmt(
+            placeholder, cmt_issuer, forward_settlement, curve
+        )
+
+        cmt_bond = self._build_maturity_matched_cmt(
+            cmt_issuer,
+            forward_settlement,
+            forward_maturity,
+            par_yield,
+        )
+        cmt_bond.setPricingEngine(ql.DiscountingBondEngine(curve_handle))
+        return self._bond_metrics_from_priced_bond(
+            cmt_bond,
+            cmt_issuer,
+            forward_settlement,
+            curve_handle=curve_handle,
+            issue_date=forward_settlement,
+            maturity_date=forward_maturity,
+            coupon_pct=par_yield,
+            face_amount=100.0,
+            repo_term_structure=None,
         )
