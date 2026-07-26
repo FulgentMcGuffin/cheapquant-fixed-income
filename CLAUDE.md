@@ -15,38 +15,23 @@ The agent exposes both a **CLI REPL** (`cqfi`) and **GUI chat** (`cqfi-gui`) for
 
 ## Architecture
 
-```
-┌─────────────────────────────────────┐
-│  User Input (CLI REPL or GUI Chat)  │
-└──────────────────┬──────────────────┘
-                   │
-          ┌────────┴────────┐
-          ▼                 ▼
-      Direct            LLM Planning
-      Commands          (mcp-data)
-      (pricing,         │
-       sessions)        ▼
-          │        ┌──────────────┐
-          └───────▶│ Router       │◀──────┐
-                   │ / Agent      │       │
-                   └──────┬───────┘       │
-                          │              │
-           ┌──────────────┼──────────────┤
-           ▼              ▼              ▼
-     ┌──────────┐   ┌──────────┐   ┌──────────┐
-     │ QuantLib │   │ mcp-data │   │ Sessions │
-     │ pricing  │   │ queries  │   │ manager  │
-     │ curves   │   │(SQL)     │   │(save/    │
-     │ analytics│   │          │   │load)     │
-     └────┬─────┘   └────┬─────┘   └────┬─────┘
-          │              │              │
-          └──────────────┴──────────────┘
-                   │
-                   ▼
-          ┌────────────────────┐
-          │ framecache SQLite  │
-          │ (quant_cache.db)   │
-          └────────────────────┘
+```mermaid
+graph TD
+    Input["👤 User Input<br/>CLI REPL or GUI Chat"]
+    
+    Input -->|Direct<br/>Commands| Direct["Direct Commands<br/>pricing, sessions"]
+    Input -->|LLM<br/>Planning| LLM["LLM Planning<br/>mcp-data"]
+    
+    Direct --> Router["🔀 Router / Agent"]
+    LLM --> Router
+    
+    Router --> QL["QuantLib<br/>pricing<br/>curves<br/>analytics"]
+    Router --> MCP["mcp-data<br/>queries<br/>SQL"]
+    Router --> Sessions["Sessions<br/>manager<br/>save/load"]
+    
+    QL --> Cache["💾 framecache SQLite<br/>quant_cache.db"]
+    MCP --> Cache
+    Sessions --> Cache
 ```
 
 **Key paths handled by `src/cheapquant_fi/`:**
