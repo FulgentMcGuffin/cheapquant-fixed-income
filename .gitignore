@@ -76,6 +76,9 @@ db.sqlite3-journal
 # Generated example database (recreate with: uv run db-mcp-seed)
 data/*.db
 
+# Evaluation run artifacts
+data/evals/runs/
+
 # Flask stuff:
 instance/
 .webassets-cache

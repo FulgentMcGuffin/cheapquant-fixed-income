@@ -278,6 +278,56 @@ and slash commands (`/bond`, `/mctx`, `/calc` for bond or CMT analytics,
 `/cache`, `/save_cache`) as the CLI. Set `ANTHROPIC_API_KEY` in `.env` for
 LLM-powered queries.
 
+## LLM Evaluation
+
+The project includes a lightweight **evaluation framework** for testing the quality of `--llm` mode responses. Use it to:
+
+- **Detect regressions** when prompt, semantics, or tool-description changes break existing behavior
+- **A/B test models** by running identical scenarios against different Claude versions
+- **Verify multi-turn memory** with conversational test sequences
+- **Root-cause failures** using full tool-call traces (which SQL ran, what results came back)
+- **Build a golden set** by turning unexpected CLI/GUI behavior into reusable test scenarios
+
+Example:
+
+```python
+from cheapquant_fi.evals import Scenario, Turn, no_tool_errors, contains_all
+from cheapquant_fi.config import load_settings
+from cheapquant_fi.evals import EvalRunner
+
+scenario = Scenario(
+    name="zero_rate_query",
+    target="input",
+    turns=[
+        Turn(
+            user_input="What was Germany's 10Y zero rate on 2020-01-02?",
+            criteria=[
+                no_tool_errors(),
+                contains_all("DEU", "2020-01-02"),
+            ],
+        ),
+    ],
+)
+
+app = load_settings()
+runner = EvalRunner(app)
+result = await runner.run_scenario(scenario)
+```
+
+**Fast unit tests** (no API key):
+
+```bash
+uv run pytest tests/test_evals_harness.py -v
+```
+
+**Full end-to-end scenarios** (requires `ANTHROPIC_API_KEY`):
+
+```bash
+uv run pytest -m llm_eval -v
+```
+
+For complete documentation, see [docs/EVALUATOR.md](docs/EVALUATOR.md).
+
 ## Bond analytics (Python API)
 
 The analytics layer is split into typed inputs/outputs and a QuantLib backend.

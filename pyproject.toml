@@ -25,6 +25,7 @@ cqfi-gui = "cheapquant_fi.gui.app:main"
 [dependency-groups]
 dev = [
     "pytest>=9.1.1",
+    "pytest-asyncio>=0.23.0",
 ]
 
 [build-system]
@@ -47,3 +48,7 @@ override-dependencies = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "llm_eval: exercises the real Anthropic API end-to-end (costs money, needs ANTHROPIC_API_KEY); run explicitly with -m llm_eval",
+    "asyncio: mark test as async",
+]
