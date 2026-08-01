@@ -1,5 +1,7 @@
 # cheapquant-fixed-income
 
+⭐ If you find this repository useful, please **consider starring it**.
+
 Interactive agent for **QuantLib** fixed-income analytics on government bonds.
 Yield-curve inputs come from a read-only DuckDB or SQLite database (`ycs_data`);
 session analytics are written to a separate **quant cache** database (`quant_cache_db`);
