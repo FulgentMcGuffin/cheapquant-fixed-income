@@ -12,8 +12,8 @@ import QuantLib as ql
 import polars as pl
 import pytest
 
-from cheapquant_fi.issuers import ISSUERS, RateType
-from cheapquant_fi.quantlib.quantlib_curve import QLZeroInterp, _ql_auto_bspline_knots, ql_build_zero_curve
+from cqfi.issuers import ISSUERS, RateType
+from cqfi.quantlib.quantlib_curve import QLZeroInterp, _ql_auto_bspline_knots, ql_build_zero_curve
 
 # ---------------------------------------------------------------------------
 # Shared fixtures

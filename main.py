@@ -1,4 +1,4 @@
-"""CheapQuant Fixed Income CLI entry point.
+"""cqfi CLI entry point.
 
 Run with uv (recommended)::
 
@@ -22,7 +22,7 @@ VENV_PYTHON = ROOT / ".venv" / ("Scripts/python.exe" if sys.platform == "win32" 
 def _ensure_venv() -> None:
     """Re-exec with the project venv when the package is not importable."""
     try:
-        import cheapquant_fi  # noqa: F401
+        import cqfi  # noqa: F401
         return
     except ModuleNotFoundError:
         pass
@@ -31,7 +31,7 @@ def _ensure_venv() -> None:
         sys.exit(subprocess.call([str(VENV_PYTHON), str(Path(__file__).resolve()), *sys.argv[1:]]))
 
     print(
-        "cheapquant_fi is not installed in this Python environment.\n"
+        "cqfi is not installed in this Python environment.\n"
         "\n"
         "This is a uv project — sync and run via uv:\n"
         "\n"
@@ -48,9 +48,9 @@ def _ensure_venv() -> None:
 
 _ensure_venv()
 
-import cheapquant_fi.config  # noqa: F401,E402 — disable LangSmith before langchain loads
+import cqfi.config  # noqa: F401,E402 — disable LangSmith before langchain loads
 
-from cheapquant_fi.agent.cli import main  # noqa: E402
+from cqfi.agent.cli import main  # noqa: E402
 
 if __name__ == "__main__":
     main()

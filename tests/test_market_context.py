@@ -9,9 +9,9 @@ import QuantLib as ql
 import polars as pl
 import pytest
 
-from cheapquant_fi.issuers import RateType, resolve_issuer
-from cheapquant_fi.quantlib.quantlib_curve import ZeroCurveBuildOptions, ql_build_zero_curve
-from cheapquant_fi.quantlib.quantlib_market_context import (
+from cqfi.issuers import RateType, resolve_issuer
+from cqfi.quantlib.quantlib_curve import ZeroCurveBuildOptions, ql_build_zero_curve
+from cqfi.quantlib.quantlib_market_context import (
     FXC,
     QuantLibCurveCollection,
     QuantlibMarketContext,
@@ -72,7 +72,7 @@ def test_ql_build_curve_collections_groups_by_date_and_orders():
         return rates
 
     with patch(
-        "cheapquant_fi.quantlib.quantlib_market_context.load_curve_rates",
+        "cqfi.quantlib.quantlib_market_context.load_curve_rates",
         side_effect=fake_load_curve_rates,
     ):
         collections = ql_build_curve_collections(pairs, "/fake/fake_ycs_data.sqlite")
@@ -101,7 +101,7 @@ def test_ql_build_market_context_registers_bond_zero_label():
         return rates
 
     with patch(
-        "cheapquant_fi.quantlib.quantlib_market_context.load_curve_rates",
+        "cqfi.quantlib.quantlib_market_context.load_curve_rates",
         side_effect=fake_load_curve_rates,
     ):
         context = ql_build_market_context(
@@ -123,7 +123,7 @@ def test_ql_build_market_context_registers_bond_par_label():
     rates = _sample_rates_df()
 
     with patch(
-        "cheapquant_fi.quantlib.quantlib_market_context.load_curve_rates",
+        "cqfi.quantlib.quantlib_market_context.load_curve_rates",
         return_value=rates,
     ):
         context = ql_build_market_context(

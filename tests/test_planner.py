@@ -1,6 +1,6 @@
 """Tests for cqfi query planner extensions."""
 
-from cheapquant_fi.agent.planner import CQFIRulePlanner, resolve_query_mode
+from cqfi.agent.planner import CQFIRulePlanner, resolve_query_mode
 
 TOOLS = ["list_tables", "get_schema", "run_sql", "describe_dataset"]
 

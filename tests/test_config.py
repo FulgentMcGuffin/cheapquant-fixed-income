@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from cheapquant_fi.config import (
+from cqfi.config import (
     DEFAULT_CONFIG_PATH,
     DEFAULT_RUNTIME_CONFIG_DIR,
     DEFAULT_RUNTIME_CONFIG_PATH,

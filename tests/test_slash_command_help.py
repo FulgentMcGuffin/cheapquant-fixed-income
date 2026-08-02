@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from cheapquant_fi.agent.cli import (
+from cqfi.agent.cli import (
     handle_bond_command,
     handle_calc_command,
     handle_dlv_command,

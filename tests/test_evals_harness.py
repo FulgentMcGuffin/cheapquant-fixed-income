@@ -2,7 +2,7 @@
 
 import pytest
 
-from cheapquant_fi.evals.criteria import (
+from cqfi.evals.criteria import (
     contains_all,
     contains_none,
     no_tool_errors,
@@ -11,13 +11,13 @@ from cheapquant_fi.evals.criteria import (
     tool_not_called,
     tool_was_called,
 )
-from cheapquant_fi.evals.models import (
+from cqfi.evals.models import (
     CriterionResult,
     ToolCallRecord,
     TurnResult,
 )
-from cheapquant_fi.evals.report import print_summary
-from cheapquant_fi.evals.runner import _flatten_token_usage
+from cqfi.evals.report import print_summary
+from cqfi.evals.runner import _flatten_token_usage
 
 
 @pytest.fixture
@@ -222,7 +222,7 @@ class TestNumericCriteria:
 class TestReporting:
     def test_print_summary_no_crash(self, sample_turn, capsys):
         """Just ensure print_summary doesn't crash."""
-        from cheapquant_fi.evals.models import Scenario, ScenarioResult, Turn
+        from cqfi.evals.models import Scenario, ScenarioResult, Turn
 
         scenario = Scenario(
             name="test",

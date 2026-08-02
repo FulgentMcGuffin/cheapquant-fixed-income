@@ -7,8 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from cheapquant_fi.agent.cli import format_cache_status, handle_cache_command
-from cheapquant_fi.config import get_runtime_settings, load_runtime_settings, save_runtime_settings
+from cqfi.agent.cli import format_cache_status, handle_cache_command
+from cqfi.config import get_runtime_settings, load_runtime_settings, save_runtime_settings
 
 
 @pytest.fixture

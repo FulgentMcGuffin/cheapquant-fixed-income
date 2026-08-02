@@ -6,9 +6,9 @@ from datetime import date, datetime
 
 import pytest
 
-from cheapquant_fi.composite_tenor import CompositeTenor, split_combined_tenor
-from cheapquant_fi.issuers import ISSUERS
-from cheapquant_fi.tenor import Tenor
+from cqfi.composite_tenor import CompositeTenor, split_combined_tenor
+from cqfi.issuers import ISSUERS
+from cqfi.tenor import Tenor
 
 
 def test_str_french_forward_tenor():

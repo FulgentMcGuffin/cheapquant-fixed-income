@@ -1,4 +1,4 @@
-# Semantic profile for the `ycs_data` dataset (D:/data/duckdb/ycs_data.duckdb or D:/data/sqlite/ycs_data.sqlite).
+# Semantic profile for the `ycs_data` dataset (D:/data/duckdb/ycs_data.duckdb or D:/data/sqlitedb/ycs_data.sqlite).
 #
 # This is the business-logic layer the LLM uses to translate domain questions
 # into SQL. Tenor columns and the source/date columns are confirmed from

@@ -7,10 +7,10 @@ from datetime import date
 import QuantLib as ql
 import pytest
 
-from cheapquant_fi.bond_futures import BOND_FUTURE_CONVENTIONS, BondFuture
-from cheapquant_fi.date_utils import add_months, to_ql_date, whole_months_between
-from cheapquant_fi.instruments import Bond
-from cheapquant_fi.quantlib.quantlib_conversion_factor import (
+from cqfi.bond_futures import BOND_FUTURE_CONVENTIONS, BondFuture
+from cqfi.date_utils import add_months, to_ql_date, whole_months_between
+from cqfi.instruments import Bond
+from cqfi.quantlib.quantlib_conversion_factor import (
     ConversionFactorError,
     conversion_factor,
     coupon_dates_after,
@@ -226,7 +226,7 @@ def test_ex_dividend_window_drops_the_next_coupon():
 
 def test_ex_dividend_only_applies_to_issuers_that_define_a_window():
     """Italy has no ex-dividend convention, so nothing is ever dropped."""
-    from cheapquant_fi.issuers import ISSUERS
+    from cqfi.issuers import ISSUERS
 
     assert ISSUERS["ITA"].ex_dividend is None
     assert ISSUERS["GBR"].ex_dividend is not None

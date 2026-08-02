@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from cheapquant_fi.bond_manager import BondManager
-from cheapquant_fi.data.create_bond_analytics_db import (
+from cqfi.bond_manager import BondManager
+from cqfi.data.create_bond_analytics_db import (
     DEFAULT_SEMANTICS_PATH,
     create_schema,
     load_semantics,
@@ -94,7 +94,7 @@ def test_get_returns_cached_without_db_access(bond_db: Path):
     def fail_fetch(*_args, **_kwargs):
         raise AssertionError("Database should not be queried for cached bond")
 
-    import cheapquant_fi.bond_manager as bond_manager_module
+    import cqfi.bond_manager as bond_manager_module
 
     original = bond_manager_module._fetch_bond_row
     bond_manager_module._fetch_bond_row = fail_fetch

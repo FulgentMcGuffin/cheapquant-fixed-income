@@ -8,9 +8,9 @@ from pathlib import Path
 import QuantLib as ql
 import pytest
 
-from cheapquant_fi.agent.cli import route_query
-from cheapquant_fi.config import DEFAULT_CONFIG_PATH, load_settings
-from cheapquant_fi.issuers import ISSUERS, ExDividendConvention
+from cqfi.agent.cli import route_query
+from cqfi.config import DEFAULT_CONFIG_PATH, load_settings
+from cqfi.issuers import ISSUERS, ExDividendConvention
 
 
 @pytest.fixture
@@ -83,7 +83,7 @@ def test_issuers_without_ex_dividend_unaffected():
     reason="ycs_data.sqlite not available",
 )
 def test_price_cmts_usa():
-    from cheapquant_fi.cache.manager import CacheManager
+    from cqfi.cache.manager import CacheManager
 
     settings = load_settings(DEFAULT_CONFIG_PATH)
     settings.ensure_dirs()
@@ -103,7 +103,7 @@ def test_price_cmts_usa():
 )
 def test_price_cmts_gbr_par_curve_bootstrap():
     """Par-curve bootstrap for GBR should complete using ex-dividend helpers."""
-    from cheapquant_fi.cache.manager import CacheManager
+    from cqfi.cache.manager import CacheManager
 
     settings = load_settings(DEFAULT_CONFIG_PATH)
     settings.ensure_dirs()

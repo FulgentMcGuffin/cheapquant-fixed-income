@@ -1,4 +1,4 @@
-﻿"""Tests for QuantLibAnalyticsCalculator and its helpers."""
+"""Tests for QuantLibAnalyticsCalculator and its helpers."""
 
 from __future__ import annotations
 
@@ -8,10 +8,10 @@ import polars as pl
 import pytest
 import QuantLib as ql
 
-from cheapquant_fi.analytics_input import BondAnalyticsInput, CmtAnalyticsInput
-from cheapquant_fi.issuers import ISSUERS, RateType
-from cheapquant_fi.numeric_term_structure import NumericTermStructure
-from cheapquant_fi.quantlib.quantlib_analytics_calculator import (
+from cqfi.analytics_input import BondAnalyticsInput, CmtAnalyticsInput
+from cqfi.issuers import ISSUERS, RateType
+from cqfi.numeric_term_structure import NumericTermStructure
+from cqfi.quantlib.quantlib_analytics_calculator import (
     QuantLibAnalyticsCalculator,
     _bond_settlement,
     _from_ql_date,
@@ -19,12 +19,12 @@ from cheapquant_fi.quantlib.quantlib_analytics_calculator import (
     _tenor_label_to_years,
     _to_ql_date,
 )
-from cheapquant_fi.quantlib.quantlib_curve import ql_build_zero_curve
-from cheapquant_fi.quantlib.quantlib_market_context import (
+from cqfi.quantlib.quantlib_curve import ql_build_zero_curve
+from cqfi.quantlib.quantlib_market_context import (
     QuantLibCurveCollection,
     QuantlibMarketContext,
 )
-from cheapquant_fi.tenor import Tenor
+from cqfi.tenor import Tenor
 
 _VAL_DATE = date(2024, 1, 15)
 _DEU = ISSUERS["DEU"]

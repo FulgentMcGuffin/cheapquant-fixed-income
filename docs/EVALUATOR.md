@@ -1,6 +1,6 @@
 # LLM Evaluator Framework
 
-This project includes a lightweight evaluation framework for testing the quality of responses from the `--llm` mode of the CheapQuant Fixed Income agent.
+This project includes a lightweight evaluation framework for testing the quality of responses from the `--llm` mode of the cqfi agent.
 
 ## Overview
 
@@ -41,7 +41,7 @@ Results are printed to console (summary table) and written as JSON to `data/eval
 A scenario is a sequence of user inputs with criteria for evaluating each response.
 
 ```python
-from cheapquant_fi.evals import (
+from cqfi.evals import (
     Scenario, Turn,
     contains_all, no_tool_errors, tool_was_called, numeric_within
 )
@@ -78,7 +78,7 @@ scenario = Scenario(
 A criterion is a callable taking a `TurnResult` and returning a `CriterionResult`:
 
 ```python
-from cheapquant_fi.evals.models import TurnResult, CriterionResult
+from cqfi.evals.models import TurnResult, CriterionResult
 
 def my_criterion(turn: TurnResult) -> CriterionResult:
     passed = len(turn.answer) > 100  # just an example
@@ -126,8 +126,8 @@ This is a key difference from the current CLI behavior (which is stateless). The
 
 ```python
 import asyncio
-from cheapquant_fi.config import load_settings
-from cheapquant_fi.evals import EvalRunner, print_summary, write_run_artifact
+from cqfi.config import load_settings
+from cqfi.evals import EvalRunner, print_summary, write_run_artifact
 
 async def main():
     app = load_settings()
@@ -187,7 +187,7 @@ The full JSON artifact written to `data/evals/runs/` includes complete tool-call
 For qualitative criteria that don't fit into deterministic checks, the evaluator can use Claude as a judge:
 
 ```python
-from cheapquant_fi.evals.judge import judge_response
+from cqfi.evals.judge import judge_response
 
 criterion = judge_response(
     question="What is the 10Y CMT price for Germany?",
@@ -251,6 +251,6 @@ Multi-turn scenarios rely on `load_mcp_tools()` fetching live tool schemas from 
 ## See Also
 
 - [CLAUDE.md](../CLAUDE.md) — project conventions and architecture
-- `src/cheapquant_fi/evals/` — source code
+- `src/cqfi/evals/` — source code
 - `tests/test_evals_harness.py` — unit test examples
 - `tests/test_eval_scenarios.py` — end-to-end test template

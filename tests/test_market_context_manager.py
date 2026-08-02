@@ -7,14 +7,14 @@ from datetime import date
 import QuantLib as ql
 import pytest
 
-from cheapquant_fi.issuers import RateType
-from cheapquant_fi.quantlib.quantlib_curve import ZeroCurveBuildOptions
-from cheapquant_fi.quantlib.quantlib_market_context import (
+from cqfi.issuers import RateType
+from cqfi.quantlib.quantlib_curve import ZeroCurveBuildOptions
+from cqfi.quantlib.quantlib_market_context import (
     FXC,
     QuantLibCurveCollection,
     QuantlibMarketContext,
 )
-from cheapquant_fi.quantlib.quantlib_market_context_manager import (
+from cqfi.quantlib.quantlib_market_context_manager import (
     QuantlibMarketContextManager,
 )
 
@@ -182,7 +182,7 @@ def test_get_builds_missing_issuer_curve():
 
     manager = QuantlibMarketContextManager.instance()
     with patch(
-        "cheapquant_fi.quantlib.quantlib_market_context.load_curve_rates",
+        "cqfi.quantlib.quantlib_market_context.load_curve_rates",
         return_value=rates,
     ):
         handle = manager.get(as_of, "DEU", "BOND_ZERO")
@@ -212,7 +212,7 @@ def test_get_builds_missing_curve_collection_label():
 
     manager = QuantlibMarketContextManager.instance()
     with patch(
-        "cheapquant_fi.quantlib.quantlib_market_context.load_curve_rates",
+        "cqfi.quantlib.quantlib_market_context.load_curve_rates",
         return_value=rates,
     ):
         handle = manager.get(as_of, "USA", "BOND_ZERO")
@@ -240,7 +240,7 @@ def test_get_creates_context_when_as_of_missing():
 
     manager = QuantlibMarketContextManager.instance()
     with patch(
-        "cheapquant_fi.quantlib.quantlib_market_context.load_curve_rates",
+        "cqfi.quantlib.quantlib_market_context.load_curve_rates",
         return_value=rates,
     ):
         handle = manager.get(as_of, "USA", "BOND_ZERO")

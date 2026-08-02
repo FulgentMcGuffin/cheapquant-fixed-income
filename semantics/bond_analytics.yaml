@@ -190,33 +190,101 @@ tables:
       asw_spread_6m: {type: REAL, description: "ASW spread of the bond as a percentage of face value for 6 months."}
       asw_spread_1y: {type: REAL, description: "ASW spread of the bond as a percentage of face value for 1 year."}
 
-cmt_analytics:
-    description: 
-      analytics (price, yield, duration, convexity, etc.) for a particular CMT tenor or maturity at a particular settlement date using a particular yield curve or supplied input yield or input price
-    columns:
-      cmt_analytic_id: {type: TEXT, description: "A unique identifier for the CMT analytics (must be unique per record in the cmt_analytics table)"}
-      issuer: {type: TEXT, description: "Country code, e.g. USA, DEU. these match the issuers dictionary in the vocabulary."}
-      tenor_label: {type: TEXT, description: "The tenor label (6M, 1Y, ..., 30Y) from the tenor_pillars table columns"}
-      created_at: {type: TEXT, description: "UTC timestamp when the analytics were computed."}
-      trade_date: {type: TEXT, description: "the trade date (YYYY-MM-DD) of the trade."}
-      settlement_date: {type: TEXT, description: "the settlement date (YYYY-MM-DD) of the trade."}
-      coupon: {type: REAL, description: "Coupon rate as a percentage."}
-      is_fixed_coupon: {type: BOOLEAN, description: "1 if the CMT is a fixed coupon CMT, 0 otherwise."}
-      maturity_date: {type: TEXT, description: "the maturity date (YYYY-MM-DD) of the CMT."}
-      curve_used: {type: BOOLEAN, description: "1 if the bond curve was used to compute the analytics, 0 otherwise."}
-      curve_settings: {type: TEXT, description: "The settings used on the (bond) curve to compute the analytics of the CMT"}
-      input_column: {type: TEXT, description: "The column (e.g. yield_to_maturity,clean_price,etc.) used as an input to compute the analytics. If present, curve_used must be 0."}
-      yield_to_maturity: {type: REAL, description: "Yield to maturity of the CMT as a percentage."}
-      clean_price: {type: REAL, description: "Clean Price of the CMT as a percentage of face value."}
-      duration: {type: REAL, description: "Duration of the CMT as a percentage (Macaulay duration)."}
-      convexity: {type: REAL, description: "Convexity of the CMT as a percentage."}
-      dv01_sensitivity: {type: REAL, description: "Duration sensitivity of the CMT as a percentage of face value (DV01)."}
-      gamma_sensitivity: {type: REAL, description: "Dollar convexity sensitivity of the CMT as a percentage of face value."}
+  cmt_analytics:
+      description: 
+        analytics (price, yield, duration, convexity, etc.) for a particular CMT tenor or maturity at a particular settlement date using a particular yield curve or supplied input yield or input price
+      columns:
+        cmt_analytic_id: {type: TEXT, description: "A unique identifier for the CMT analytics (must be unique per record in the cmt_analytics table)"}
+        issuer: {type: TEXT, description: "Country code, e.g. USA, DEU. these match the issuers dictionary in the vocabulary."}
+        tenor_label: {type: TEXT, description: "The tenor label (6M, 1Y, ..., 30Y) from the tenor_pillars table columns"}
+        created_at: {type: TEXT, description: "UTC timestamp when the analytics were computed."}
+        trade_date: {type: TEXT, description: "the trade date (YYYY-MM-DD) of the trade."}
+        settlement_date: {type: TEXT, description: "the settlement date (YYYY-MM-DD) of the trade."}
+        coupon: {type: REAL, description: "Coupon rate as a percentage."}
+        is_fixed_coupon: {type: BOOLEAN, description: "1 if the CMT is a fixed coupon CMT, 0 otherwise."}
+        maturity_date: {type: TEXT, description: "the maturity date (YYYY-MM-DD) of the CMT."}
+        curve_used: {type: BOOLEAN, description: "1 if the bond curve was used to compute the analytics, 0 otherwise."}
+        curve_settings: {type: TEXT, description: "The settings used on the (bond) curve to compute the analytics of the CMT"}
+        input_column: {type: TEXT, description: "The column (e.g. yield_to_maturity,clean_price,etc.) used as an input to compute the analytics. If present, curve_used must be 0."}
+        yield_to_maturity: {type: REAL, description: "Yield to maturity of the CMT as a percentage."}
+        clean_price: {type: REAL, description: "Clean Price of the CMT as a percentage of face value."}
+        duration: {type: REAL, description: "Duration of the CMT as a percentage (Macaulay duration)."}
+        convexity: {type: REAL, description: "Convexity of the CMT as a percentage."}
+        dv01_sensitivity: {type: REAL, description: "Duration sensitivity of the CMT as a percentage of face value (DV01)."}
+        gamma_sensitivity: {type: REAL, description: "Dollar convexity sensitivity of the CMT as a percentage of face value."}
       asw_spread_1m: {type: REAL, description: "ASW spread of the CMT as a percentage of face value for 1 month."}
       asw_spread_3m: {type: REAL, description: "ASW spread of the CMT as a percentage of face value for 3 months."}
       asw_spread_6m: {type: REAL, description: "ASW spread of the CMT as a percentage of face value for 6 months."}
       asw_spread_1y: {type: REAL, description: "ASW spread of the CMT as a percentage of face value for 1 year."}
 
+  bond_future_conventions:
+    description: >
+      Registry of exchange-traded government bond future contract terms. Each row represents one standardized contract
+      (e.g., ZT for CME 2Y Treasuries, FGBU3 for Eurex 10Y Bunds, IK for Eurex BTPs). Keyed by canonical name; foreign
+      keys from bond_future_basket_outputs link to per-contract analytics runs.
+    columns:
+      convention_id: {type: TEXT, description: "Canonical contract name (e.g., ZT, FGBU, IK); primary key"}
+      exchange: {type: TEXT, description: "Listing venue (CME, EUREX, ICE, OSE)"}
+      issuer: {type: TEXT, description: "Underlying sovereign issuer code (e.g., USA, DEU, JPN)"}
+      notional_maturity_years: {type: REAL, description: "Maturity of notional bond in years (e.g., 2.0 for 2Y)"}
+      notional_coupon: {type: REAL, description: "Notional coupon rate as a percentage (e.g., 6.0)"}
+      contract_size: {type: REAL, description: "Nominal value per contract in issuer currency (e.g., 100000 for CME)"}
+      reference_day_spec: {type: TEXT, description: "Day-of-month spec for conversion factor reference date (e.g., C1 0BD)"}
+      delivery_start_spec: {type: TEXT, description: "Day-of-month spec for first delivery day (e.g., C1 1BD)"}
+      delivery_end_spec: {type: TEXT, description: "Day-of-month spec for last delivery day (e.g., L0 -1BD)"}
+      conversion_factor_method: {type: TEXT, description: "Exchange formula for CF computation (CME, EUREX, ICE, JGB)"}
+      cf_decimals: {type: REAL, description: "Number of decimal places the exchange publishes CFs to"}
+      repo_market: {type: TEXT, description: "Repo market convention (INTERNATIONAL, DOMESTIC, GC)"}
+      bloomberg_root: {type: TEXT, description: "Bloomberg ticker root if different from convention_id"}
+      synonyms: {type: TEXT, description: "JSON array of alternative codes that resolve to this contract"}
+      restrictions_json: {type: TEXT, description: "JSON blob: {remaining_maturity: {min_months, max_months}, original_term: {...}, min_issue_amount, exclude_green}"}
+      created_at: {type: TEXT, description: "UTC timestamp when this record was created"}
+
+  bond_future_basket_outputs:
+    description: >
+      Basis analytics for a complete delivery basket. One row per bond-future contract analyzed on a specific trade date.
+      A foreign key to bond_future_conventions identifies the contract; bond_id and timestamp allow joining to bond_future_outputs
+      for per-bond analytics (cheapest-to-deliver first). Replaces historical cheapest-to-deliver consensus and basis models.
+    columns:
+      basket_output_id: {type: TEXT, description: "Unique identifier for this basket analysis (e.g., ZTZ9_2024-02-15_abc123); primary key"}
+      convention_id: {type: TEXT, description: "Foreign key to bond_future_conventions"}
+      delivery_month: {type: TEXT, description: "Delivery month code and year (e.g., Z2029 for December 2029)"}
+      trade_date: {type: TEXT, description: "Trade date YYYY-MM-DD"}
+      settlement_date: {type: TEXT, description: "Bond settlement implied by trade date (YYYY-MM-DD)"}
+      delivery_date: {type: TEXT, description: "Last delivery day (YYYY-MM-DD)"}
+      futures_price: {type: REAL, description: "Observed or implied futures price per 100 nominal"}
+      futures_price_is_implied: {type: BOOLEAN, description: "1 if price was implied from basket, 0 if observed"}
+      repo_rate: {type: REAL, description: "Basket-wide default financing rate used to carry bonds to delivery, as a percentage. Implied by the analytics request's basket-wide repo term structure, or the discount curve's own forward rate to delivery when that was unset. A deliverable bond with its own per-bond override (see bond_future_outputs.repo_term_structure_json) may actually have carried at a different rate; bond_future_outputs.repo_rate holds the rate that was really applied to each bond."}
+      bond_count: {type: REAL, description: "Number of deliverable bonds in this basket"}
+      created_at: {type: TEXT, description: "UTC timestamp when this basket analysis was computed"}
+
+  bond_future_outputs:
+    description: >
+      Per-bond basis analytics within a delivery basket, ordered by cheapest-to-deliver (index=0) first.
+      Each row joins a deliverable bond, conversion factor, price, repo rate, and basis metrics.
+      Foreign key basket_output_id links to bond_future_basket_outputs; bond_id links to bond_universe for full bond details.
+      A DeliveryBasket lets each deliverable bond carry its own repo term structure instead of the basket-wide one
+      (DeliveryBasket.add(bond, repo_term_structure=...) or DeliveryBasket.set_repo_term_structure); repo_term_structure_json
+      and repo_rate below capture that override (if any) and the rate actually applied, so a row fully explains how this
+      bond's forward_clean_price and basis were financed without needing the original Python request object.
+    columns:
+      future_output_id: {type: TEXT, description: "Unique identifier for this per-bond analysis; primary key"}
+      basket_output_id: {type: TEXT, description: "Foreign key to bond_future_basket_outputs"}
+      bond_id: {type: TEXT, description: "Foreign key to bond_universe for the deliverable bond"}
+      index: {type: REAL, description: "Rank by implied repo rate; 0 = cheapest-to-deliver"}
+      conversion_factor: {type: REAL, description: "Contract-specific CF; may override exchange formula if supplied as override"}
+      clean_price: {type: REAL, description: "Curve-implied clean price on settlement date, per 100 nominal"}
+      accrued_interest: {type: REAL, description: "Accrued interest on settlement date, per 100 nominal"}
+      repo_rate: {type: REAL, description: "The financing rate actually applied to carry THIS bond to delivery, as a percentage. Equal to bond_future_basket_outputs.repo_rate unless repo_term_structure_json (below) supplied a bond-specific override, in which case it reflects that override's rate instead."}
+      repo_term_structure_json: {type: TEXT, description: "JSON object mapping repo tenor labels to rates in percent (e.g. {\"3m\": 3.0, \"1y\": 3.2}), supplied for this specific deliverable bond via DeliveryBasket.add(bond, repo_term_structure=...) / DeliveryBasket.set_repo_term_structure, instead of the basket-wide repo term structure. NULL means this bond financed at the basket-wide term structure (bond_future_basket_outputs.repo_rate) or the discount curve's own forward rate when that was also unset. When not NULL, reconstruct the override with NumericTermStructure(json.loads(repo_term_structure_json), as_of=<bond_future_basket_outputs.trade_date for this basket_output_id>)."}
+      forward_clean_price: {type: REAL, description: "Clean price forward-carried to delivery date, per 100 nominal"}
+      implied_repo_rate: {type: REAL, description: "Return from buy-bond-deliver-repay, as a percentage; NULL if financing is degenerate"}
+      gross_basis: {type: REAL, description: "clean_price - futures_price * conversion_factor, per 100 nominal"}
+      net_basis: {type: REAL, description: "gross_basis - carry to delivery, per 100 nominal"}
+      delta: {type: REAL, description: "Clean-price change per basis point of parallel zero-curve shift, per 100 nominal"}
+      gamma: {type: REAL, description: "Change in delta per basis point, per 100 nominal"}
+      implied_fair_futures_price: {type: REAL, description: "forward_clean_price / conversion_factor; intrinsic value at delivery"}
+      created_at: {type: TEXT, description: "UTC timestamp when this output was computed"}
 
 examples:
   - q: "What 10Y CMT clean prices did we compute for US Treasuries?"

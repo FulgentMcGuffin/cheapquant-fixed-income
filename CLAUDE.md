@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-CheapQuant Fixed Income is an interactive agent for QuantLib-based fixed-income analytics on government bonds. It combines:
+cqfi is an interactive agent for QuantLib-based fixed-income analytics on government bonds. It combines:
 - **QuantLib** for yield-curve modeling and CMT (Constant Maturity Treasury) pricing
 - **framecache** (local SQLite) for caching analytics results
 - **mcp-data** for natural-language SQL queries against SQLite/DuckDB databases
@@ -34,7 +34,7 @@ graph TD
     Sessions --> Cache
 ```
 
-**Key paths handled by `src/cheapquant_fi/`:**
+**Key paths handled by `src/cqfi/`:**
 - **`config.py`** — Load and validate YAML configs; resolve paths from environment or config files
 - **`agent/`** — CLI REPL entry point (`cli.py`), query routing and planning logic (`planner.py`)
 - **`quantlib/`** — Curve construction, CMT pricing, analytics, market context
@@ -46,7 +46,7 @@ graph TD
 
 ### Setup
 ```powershell
-cd D:\Code\cheapquant-fixed-income
+cd D:\Code\cqfi
 uv sync
 copy .env.example .env  # optional — only needed for LLM mode
 ```

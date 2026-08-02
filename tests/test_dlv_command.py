@@ -6,8 +6,8 @@ from datetime import date
 
 import pytest
 
-from cheapquant_fi.bond_futures import resolve_delivery_month
-from cheapquant_fi.delivery_basket import parse_dlv_command, parse_fut_command
+from cqfi.bond_futures import resolve_delivery_month
+from cqfi.delivery_basket import parse_dlv_command, parse_fut_command
 
 # Fixed "today" so every relative delivery specifier is deterministic.
 TODAY = date(2026, 8, 2)
@@ -138,6 +138,56 @@ def test_fut_analytics_requests(text, target, trade_date):
     ["/fut IKH7 notadate", "/fut IKH7 2026-13-01", "/fut a b c", "/fut a 15-05-2026"],
 )
 def test_fut_invalid_requests(text):
+    result = parse_fut_command(text)
+    assert result.kind == "invalid"
+    assert result.message
+
+
+# --------------------------------------------------------------------------- #
+# /fut repo term structure
+# --------------------------------------------------------------------------- #
+@pytest.mark.parametrize(
+    ("text", "target", "trade_date", "repo"),
+    [
+        ("/fut IKH7 3.0", "IKH7", None, 3.0),
+        ("/fut IKH7 -0.5", "IKH7", None, -0.5),
+        ("/fut IKH7 2026-05-15 3.0", "IKH7", date(2026, 5, 15), 3.0),
+        (
+            '/fut IKH7 2026-05-15 {"3m": 3.0, "1y": 3.2}',
+            "IKH7",
+            date(2026, 5, 15),
+            {"3m": 3.0, "1y": 3.2},
+        ),
+        (
+            '/fut mybasket {"3m": 3.0, "1y": 3.2}',
+            "mybasket",
+            None,
+            {"3m": 3.0, "1y": 3.2},
+        ),
+    ],
+)
+def test_fut_repo_term_structure_is_parsed(text, target, trade_date, repo):
+    result = parse_fut_command(text)
+    assert result.kind == "analytics"
+    assert result.target == target
+    assert result.trade_date == trade_date
+    assert result.numeric_term_structure == repo
+
+
+def test_fut_without_repo_leaves_numeric_term_structure_none():
+    result = parse_fut_command("/fut IKH7 2026-05-15")
+    assert result.kind == "analytics"
+    assert result.numeric_term_structure is None
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        '/fut IKH7 2026-05-15 {not valid json}',
+        "/fut IKH7 2026-05-15 {1, 2, 3}",
+    ],
+)
+def test_fut_invalid_repo_term_structure_is_rejected(text):
     result = parse_fut_command(text)
     assert result.kind == "invalid"
     assert result.message
