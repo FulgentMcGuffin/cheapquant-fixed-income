@@ -6,8 +6,8 @@ import json
 
 import pytest
 
-import cheapquant_fi.bond_futures as bond_futures
-from cheapquant_fi.bond_futures import (
+import cqfi.bond_futures as bond_futures
+from cqfi.bond_futures import (
     BOND_FUTURE_CONVENTIONS,
     AmbiguousBondFutureError,
     BondFutureError,
@@ -16,7 +16,7 @@ from cheapquant_fi.bond_futures import (
     months,
     resolve_bond_future_convention,
 )
-from cheapquant_fi.issuers import ISSUERS, RepoMarket
+from cqfi.issuers import ISSUERS, RepoMarket
 
 ALL_CONVENTIONS = tuple(BOND_FUTURE_CONVENTIONS.values())
 

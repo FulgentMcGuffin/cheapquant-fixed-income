@@ -5,7 +5,7 @@
 # cache_id's are not meant for direct SQL analysis but bond_id and user_friendly_id are.
 
 dataset: quant_cache
-backend: sqlite
+backend: duckdb orsqlite
 description: >
   Cached QuantLib for fixed-income analytics. 
   bond_analytics holds fixed-income bond analytic results (like price, yield, duration, convexity, settlement_date, etc.)
@@ -166,6 +166,48 @@ tables:
       asw_spread_3m: {type: REAL, description: "ASW spread of the CMT as a percentage of face value for 3 months."}
       asw_spread_6m: {type: REAL, description: "ASW spread of the CMT as a percentage of face value for 6 months."}
       asw_spread_1y: {type: REAL, description: "ASW spread of the CMT as a percentage of face value for 1 year."}
+
+  bond_future_basket_outputs:
+    description: >
+      Session cache of bond future basis analytics for a complete delivery basket. Mirrors the persistent bond_analytics_db
+      structure but is ephemeral (cleared on session finalize). One row per contract and trade date analyzed in this session.
+    columns:
+      basket_output_id: {type: TEXT, description: "Unique identifier for this basket analysis; primary key"}
+      convention_id: {type: TEXT, description: "Canonical contract name (e.g., ZT, FGBU, IK)"}
+      delivery_month: {type: TEXT, description: "Delivery month code and year (e.g., Z2029)"}
+      trade_date: {type: TEXT, description: "Trade date YYYY-MM-DD"}
+      settlement_date: {type: TEXT, description: "Bond settlement YYYY-MM-DD"}
+      delivery_date: {type: TEXT, description: "Last delivery day YYYY-MM-DD"}
+      futures_price: {type: REAL, description: "Observed or implied futures price per 100"}
+      futures_price_is_implied: {type: BOOLEAN, description: "1 if price was implied, 0 if observed"}
+      repo_rate: {type: REAL, description: "Basket-wide default financing rate, as a percentage. A bond with its own bond_future_outputs.repo_term_structure_json override may have carried at a different rate; see bond_future_outputs.repo_rate for the rate actually applied to each bond."}
+      bond_count: {type: REAL, description: "Number of deliverable bonds in basket"}
+      created_at: {type: TEXT, description: "UTC timestamp when computed"}
+
+  bond_future_outputs:
+    description: >
+      Session cache of per-bond basis analytics within a basket. One row per deliverable, ranked cheapest-to-deliver first.
+      A deliverable bond may carry its own repo term structure instead of the basket-wide one (DeliveryBasket.add(bond,
+      repo_term_structure=...) or DeliveryBasket.set_repo_term_structure); repo_term_structure_json and repo_rate capture
+      that override (if any) and the rate actually applied to this bond.
+    columns:
+      future_output_id: {type: TEXT, description: "Unique identifier; primary key"}
+      basket_output_id: {type: TEXT, description: "Foreign key to bond_future_basket_outputs"}
+      bond_id: {type: TEXT, description: "Foreign key to bond_universe (in session or persistent DB)"}
+      index: {type: REAL, description: "Rank; 0 = cheapest-to-deliver"}
+      conversion_factor: {type: REAL, description: "CF (contract-specific or computed)"}
+      clean_price: {type: REAL, description: "Curve-implied clean price on settlement, per 100"}
+      accrued_interest: {type: REAL, description: "Accrued on settlement, per 100"}
+      repo_rate: {type: REAL, description: "Financing rate actually applied to carry THIS bond to delivery, as a percentage. Equal to bond_future_basket_outputs.repo_rate unless repo_term_structure_json overrides it for this bond."}
+      repo_term_structure_json: {type: TEXT, description: "JSON object of repo tenor label -> rate in percent (e.g. {\"3m\": 3.0, \"1y\": 3.2}) supplied for this bond only, instead of the basket-wide term structure. NULL means this bond used the basket-wide term structure (bond_future_basket_outputs.repo_rate) or the discount curve's own forward rate. Reconstruct with NumericTermStructure(json.loads(repo_term_structure_json), as_of=<the trade_date on the linked bond_future_basket_outputs row>) when not NULL."}
+      forward_clean_price: {type: REAL, description: "Clean price carried to delivery, per 100"}
+      implied_repo_rate: {type: REAL, description: "Return from buy-hold-deliver; NULL if degenerate"}
+      gross_basis: {type: REAL, description: "clean_price - futures_price * CF, per 100"}
+      net_basis: {type: REAL, description: "gross_basis - carry, per 100"}
+      delta: {type: REAL, description: "Price delta per basis point, per 100"}
+      gamma: {type: REAL, description: "Delta gamma per basis point, per 100"}
+      implied_fair_futures_price: {type: REAL, description: "forward_clean_price / CF"}
+      created_at: {type: TEXT, description: "UTC timestamp when computed"}
 
   calculation_log:
     description: >

@@ -7,7 +7,7 @@ from datetime import date, timedelta
 import QuantLib as ql
 import pytest
 
-from cheapquant_fi.day_of_month import (
+from cqfi.day_of_month import (
     CalendarDayRule,
     DayOfMonthSpec,
     DayOfMonthSpecError,

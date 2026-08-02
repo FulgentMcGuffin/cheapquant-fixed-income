@@ -7,7 +7,7 @@ from datetime import date
 
 import pytest
 
-from cheapquant_fi.numeric_term_structure import NumericTermStructure
+from cqfi.numeric_term_structure import NumericTermStructure
 
 
 def test_repo_term_structure_orders_by_maturity():
@@ -43,3 +43,16 @@ def test_repo_term_structure_from_dict():
 
     round_trip = NumericTermStructure(structure.to_dict(), as_of, to_decimal=False)
     assert round_trip.to_dict() == structure.to_dict()
+
+
+def test_a_single_tenor_is_a_flat_rate_held_for_eternity():
+    """A one-point term structure — e.g. from a bare CLI number — should
+
+    extrapolate flat no matter how far out the requested date is.
+    """
+    as_of = date(2024, 1, 15)
+    structure = NumericTermStructure({"1d": 3.0}, as_of)
+
+    assert structure.rate_for(date(2024, 1, 16)) == pytest.approx(0.03)
+    assert structure.rate_for(date(2054, 1, 15)) == pytest.approx(0.03)
+    assert structure.rate_for(date(2124, 6, 1)) == pytest.approx(0.03)

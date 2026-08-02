@@ -2,7 +2,7 @@
 
 import os
 
-from cheapquant_fi.config import configure_langsmith
+from cqfi.config import configure_langsmith
 
 
 def test_langsmith_disabled_by_default(monkeypatch):

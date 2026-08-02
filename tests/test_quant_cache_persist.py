@@ -11,10 +11,10 @@ from unittest.mock import MagicMock
 import polars as pl
 import pytest
 
-from cheapquant_fi.analytics_input import BondAnalyticsInput, CmtAnalyticsInput
-from cheapquant_fi.analytics_output import FixedIncomeAnalyticsOutput
-from cheapquant_fi.cache.decorators import cache_bond_analytics, cache_cmt_analytics
-from cheapquant_fi.cache.registry import (
+from cqfi.analytics_input import BondAnalyticsInput, CmtAnalyticsInput
+from cqfi.analytics_output import FixedIncomeAnalyticsOutput
+from cqfi.cache.decorators import cache_bond_analytics, cache_cmt_analytics
+from cqfi.cache.registry import (
     CacheRegistry,
     get_cache_registry,
     join_id,
@@ -22,17 +22,17 @@ from cheapquant_fi.cache.registry import (
     short_id,
     utc_now_ms,
 )
-from cheapquant_fi.config import get_runtime_settings, load_settings
-from cheapquant_fi.issuers import ISSUERS, RateType
-from cheapquant_fi.quantlib.quantlib_analytics_calculator import (
+from cqfi.config import get_runtime_settings, load_settings
+from cqfi.issuers import ISSUERS, RateType
+from cqfi.quantlib.quantlib_analytics_calculator import (
     QuantLibAnalyticsCalculator,
 )
-from cheapquant_fi.quantlib.quantlib_curve import ql_build_zero_curve
-from cheapquant_fi.quantlib.quantlib_market_context import (
+from cqfi.quantlib.quantlib_curve import ql_build_zero_curve
+from cqfi.quantlib.quantlib_market_context import (
     QuantLibCurveCollection,
     QuantlibMarketContext,
 )
-from cheapquant_fi.tenor import Tenor
+from cqfi.tenor import Tenor
 
 _VAL_DATE = date(2024, 1, 15)
 _MATURITY = date(2034, 1, 15)
@@ -331,7 +331,7 @@ def test_cache_bond_analytics_decorator_calls_registry(monkeypatch, quant_cache_
     get_runtime_settings().update(use_quant_cache=True)
     mock_reg = MagicMock()
     monkeypatch.setattr(
-        "cheapquant_fi.cache.decorators.get_cache_registry", lambda: mock_reg
+        "cqfi.cache.decorators.get_cache_registry", lambda: mock_reg
     )
 
     class FakeCalc:
@@ -359,7 +359,7 @@ def test_cache_bond_analytics_decorator_skips_when_disabled(monkeypatch, quant_c
     get_runtime_settings().update(use_quant_cache=False)
     mock_reg = MagicMock()
     monkeypatch.setattr(
-        "cheapquant_fi.cache.decorators.get_cache_registry", lambda: mock_reg
+        "cqfi.cache.decorators.get_cache_registry", lambda: mock_reg
     )
 
     class FakeCalc:
@@ -569,7 +569,7 @@ def test_cache_cmt_analytics_decorator_calls_registry(monkeypatch, quant_cache_e
     get_runtime_settings().update(use_quant_cache=True)
     mock_reg = MagicMock()
     monkeypatch.setattr(
-        "cheapquant_fi.cache.decorators.get_cache_registry", lambda: mock_reg
+        "cqfi.cache.decorators.get_cache_registry", lambda: mock_reg
     )
 
     class FakeCalc:
@@ -596,7 +596,7 @@ def test_cache_cmt_analytics_decorator_skips_when_disabled(monkeypatch, quant_ca
     get_runtime_settings().update(use_quant_cache=False)
     mock_reg = MagicMock()
     monkeypatch.setattr(
-        "cheapquant_fi.cache.decorators.get_cache_registry", lambda: mock_reg
+        "cqfi.cache.decorators.get_cache_registry", lambda: mock_reg
     )
 
     class FakeCalc:

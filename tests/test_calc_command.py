@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from cheapquant_fi.agent.cli import handle_calc_command
-from cheapquant_fi.agent.planner import CQFIRulePlanner
-from cheapquant_fi.cli_tools import parse_calc_command
+from cqfi.agent.cli import handle_calc_command
+from cqfi.agent.planner import CQFIRulePlanner
+from cqfi.cli_tools import parse_calc_command
 
 
 def test_parse_cmt_calc_two_args():

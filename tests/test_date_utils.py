@@ -6,7 +6,7 @@ from datetime import date
 
 import pytest
 
-from cheapquant_fi.date_utils import (
+from cqfi.date_utils import (
     add_months,
     days_in_month,
     from_ql_date,

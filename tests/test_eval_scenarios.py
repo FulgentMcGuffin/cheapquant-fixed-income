@@ -6,10 +6,10 @@ Skipped by default; run with: pytest -m llm_eval
 
 import pytest
 
-from cheapquant_fi.agent.planner import has_llm_credentials
-from cheapquant_fi.config import load_settings
-from cheapquant_fi.evals import EvalRunner, print_summary, write_run_artifact
-from cheapquant_fi.evals.scenarios import ALL_SCENARIOS
+from cqfi.agent.planner import has_llm_credentials
+from cqfi.config import load_settings
+from cqfi.evals import EvalRunner, print_summary, write_run_artifact
+from cqfi.evals.scenarios import ALL_SCENARIOS
 
 # Skip all tests in this file if no API key
 pytestmark = pytest.mark.skipif(
@@ -47,7 +47,7 @@ async def test_run_all_scenarios():
 @pytest.mark.asyncio
 async def test_single_zero_rate_scenario():
     """Run just the zero-rate lookup scenario as a quick smoke test."""
-    from cheapquant_fi.evals.scenarios.curve_queries import SCENARIOS
+    from cqfi.evals.scenarios.curve_queries import SCENARIOS
 
     app = load_settings()
     runner = EvalRunner(app)
@@ -67,7 +67,7 @@ async def test_single_zero_rate_scenario():
 @pytest.mark.asyncio
 async def test_multi_turn_memory():
     """Run a multi-turn scenario to verify conversational memory is working."""
-    from cheapquant_fi.evals.scenarios.multi_turn import SCENARIOS
+    from cqfi.evals.scenarios.multi_turn import SCENARIOS
 
     app = load_settings()
     runner = EvalRunner(app)

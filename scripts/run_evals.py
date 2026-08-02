@@ -19,9 +19,9 @@ from pathlib import Path
 
 from langchain_anthropic import ChatAnthropic
 
-from cheapquant_fi.config import get_settings
-from cheapquant_fi.evals import EvalRunner, print_summary, write_run_artifact
-from cheapquant_fi.evals.scenarios import ALL_SCENARIOS
+from cqfi.config import get_settings
+from cqfi.evals import EvalRunner, print_summary, write_run_artifact
+from cqfi.evals.scenarios import ALL_SCENARIOS
 
 
 async def main():

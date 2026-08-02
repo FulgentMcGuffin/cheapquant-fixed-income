@@ -8,19 +8,19 @@ from datetime import date
 import QuantLib as ql
 import pytest
 
-from cheapquant_fi.bond_future_calculator import BondFutureCalculator
-from cheapquant_fi.bond_future_input import BondFutureInput
-from cheapquant_fi.bond_future_output import BOND_FUTURE_OUTPUT_COLUMNS
-from cheapquant_fi.bond_futures import BOND_FUTURE_CONVENTIONS, BondFuture
-from cheapquant_fi.date_utils import to_ql_date
-from cheapquant_fi.delivery_basket import DeliveryBasket
-from cheapquant_fi.instruments import Bond
-from cheapquant_fi.numeric_term_structure import NumericTermStructure
-from cheapquant_fi.quantlib.quantlib_bond_future_calculator import (
+from cqfi.bond_future_calculator import BondFutureCalculator
+from cqfi.bond_future_input import BondFutureInput
+from cqfi.bond_future_output import BOND_FUTURE_OUTPUT_COLUMNS
+from cqfi.bond_futures import BOND_FUTURE_CONVENTIONS, BondFuture
+from cqfi.date_utils import to_ql_date
+from cqfi.delivery_basket import DeliveryBasket
+from cqfi.instruments import Bond
+from cqfi.numeric_term_structure import NumericTermStructure
+from cqfi.quantlib.quantlib_bond_future_calculator import (
     BondFutureAnalyticsError,
     QuantLibBondFutureCalculator,
 )
-from cheapquant_fi.quantlib.quantlib_market_context import (
+from cqfi.quantlib.quantlib_market_context import (
     QuantLibCurveCollection,
     QuantlibMarketContext,
 )
@@ -209,6 +209,70 @@ def test_curve_forward_is_used_when_no_repo_curve_is_supplied(basket, market):
 
 
 # --------------------------------------------------------------------------- #
+# Per-bond repo term structure overrides
+# --------------------------------------------------------------------------- #
+def test_per_bond_repo_override_changes_only_that_bonds_carry(basket, market, flat_repo):
+    """A bond-specific repo curve should reprice just that bond's forward."""
+    special = NumericTermStructure(
+        {"1m": 1.0, "3m": 1.0, "6m": 1.0, "1y": 1.0}, TRADE_DATE
+    )
+    baseline = _analyse(basket, market, repo_term_structure=flat_repo, futures_price=120.0)
+
+    overridden = DeliveryBasket(bond_future=FBTP_U6)
+    target_bond = basket.members[0].bond
+    for member in basket.members:
+        overridden.add(
+            member.bond,
+            repo_term_structure=special if member.bond is target_bond else None,
+        )
+    request = BondFutureInput(
+        delivery_basket=overridden,
+        bond_future=FBTP_U6,
+        trade_date=TRADE_DATE,
+        repo_term_structure=flat_repo,
+        futures_price=120.0,
+    )
+    result = QuantLibBondFutureCalculator().compute_bond_future_analytics(request, market)
+
+    by_id = {o.bond.user_friendly_id: o for o in result.outputs}
+    baseline_by_id = {o.bond.user_friendly_id: o for o in baseline.outputs}
+    changed = by_id[target_bond.user_friendly_id]
+    unchanged_id = next(
+        m.bond.user_friendly_id for m in basket.members if m.bond is not target_bond
+    )
+
+    # The overridden bond's forward price (and hence net basis) moves...
+    assert changed.forward_clean_price != pytest.approx(
+        baseline_by_id[target_bond.user_friendly_id].forward_clean_price
+    )
+    # ...but every other bond still carries at the basket-wide 3% repo.
+    assert by_id[unchanged_id].forward_clean_price == pytest.approx(
+        baseline_by_id[unchanged_id].forward_clean_price
+    )
+    # The basket-level reported repo_rate still reflects the basket-wide default.
+    assert result.repo_rate == pytest.approx(3.0)
+
+
+def test_basket_wide_repo_still_applies_when_no_member_has_an_override(basket, market, flat_repo):
+    """Existing single-term-structure behaviour is unchanged."""
+    plain = _analyse(basket, market, repo_term_structure=flat_repo)
+
+    no_override_basket = DeliveryBasket(bond_future=FBTP_U6)
+    for member in basket.members:
+        no_override_basket.add(member.bond)
+    request = BondFutureInput(
+        delivery_basket=no_override_basket,
+        bond_future=FBTP_U6,
+        trade_date=TRADE_DATE,
+        repo_term_structure=flat_repo,
+    )
+    same = QuantLibBondFutureCalculator().compute_bond_future_analytics(request, market)
+
+    for a, b in zip(plain.outputs, same.outputs):
+        assert a.forward_clean_price == pytest.approx(b.forward_clean_price)
+
+
+# --------------------------------------------------------------------------- #
 # Ranking
 # --------------------------------------------------------------------------- #
 def test_index_zero_is_the_cheapest_to_deliver(basket, market, flat_repo):
@@ -228,7 +292,7 @@ def test_outputs_are_ordered_by_descending_implied_repo(basket, market, flat_rep
 
 
 def test_ctd_on_an_empty_result_explains_itself():
-    from cheapquant_fi.bond_future_output import BondFutureBasketOutput
+    from cqfi.bond_future_output import BondFutureBasketOutput
 
     empty = BondFutureBasketOutput(
         bond_future=FBTP_U6,

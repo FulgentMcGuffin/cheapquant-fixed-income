@@ -7,9 +7,9 @@ from pathlib import Path
 
 import pytest
 
-from cheapquant_fi.cache.registry import CacheRegistry, reset_cache_registry
-from cheapquant_fi.cache.session_finalize import finalize_quant_cache_session
-from cheapquant_fi.config import get_runtime_settings, load_runtime_settings
+from cqfi.cache.registry import CacheRegistry, reset_cache_registry
+from cqfi.cache.session_finalize import finalize_quant_cache_session
+from cqfi.config import get_runtime_settings, load_runtime_settings
 
 
 def _copy_semantics(name: str, tmp_path: Path) -> Path:
@@ -51,6 +51,46 @@ def _insert_cmt_row(registry: CacheRegistry, cmt_analytic_id: str) -> None:
             "curve_used": 1,
             "curve_settings": "DEU-BOND_ZERO",
             "clean_price": 100.0,
+        },
+    )
+
+
+def _insert_bond_future_rows(registry: CacheRegistry) -> None:
+    registry.upsert_row(
+        "bond_future_basket_outputs",
+        {
+            "basket_output_id": "FBTPU6-2026-05-15-abc",
+            "convention_id": "FBTP",
+            "delivery_month": "U2026",
+            "trade_date": "2026-05-15",
+            "settlement_date": "2026-05-18",
+            "delivery_date": "2026-09-10",
+            "futures_price": 120.0,
+            "futures_price_is_implied": 1,
+            "repo_rate": 3.0,
+            "bond_count": 1.0,
+            "created_at": "2026-05-15 12:00:00.000",
+        },
+    )
+    registry.upsert_row(
+        "bond_future_outputs",
+        {
+            "future_output_id": "OUT1",
+            "basket_output_id": "FBTPU6-2026-05-15-abc",
+            "bond_id": "US0001",
+            "index": 0.0,
+            "conversion_factor": 1.05,
+            "clean_price": 101.0,
+            "accrued_interest": 0.5,
+            "repo_rate": 3.0,
+            "forward_clean_price": 100.8,
+            "implied_repo_rate": 3.0,
+            "gross_basis": 0.2,
+            "net_basis": 0.1,
+            "delta": -0.05,
+            "gamma": 0.001,
+            "implied_fair_futures_price": 96.0,
+            "created_at": "2026-05-15 12:00:00.000",
         },
     )
 
@@ -160,3 +200,26 @@ def test_finalize_noop_when_quant_cache_db_missing(tmp_path: Path, monkeypatch: 
     )()
 
     finalize_quant_cache_session(settings)
+
+
+def test_finalize_merges_bond_future_analytics(finalize_env):
+    settings, quant_cache_db, bond_analytics_db = finalize_env
+    cache_reg = CacheRegistry(quant_cache_db, settings.quant_cache_semantics_path)
+    _insert_bond_future_rows(cache_reg)
+    cache_reg.close()
+    reset_cache_registry()
+
+    runtime = get_runtime_settings()
+    runtime.update(save_quant_cache_to_bond_analytics_after_session=True)
+
+    finalize_quant_cache_session(settings)
+
+    assert _count_rows(bond_analytics_db, "bond_future_basket_outputs") == 1
+    assert _count_rows(bond_analytics_db, "bond_future_outputs") == 1
+    assert _count_rows(bond_analytics_db, "bond_future_conventions") >= 1
+
+    with sqlite3.connect(bond_analytics_db) as conn:
+        convention_id = conn.execute(
+            'SELECT convention_id FROM bond_future_conventions WHERE convention_id = "FBTP"'
+        ).fetchone()
+        assert convention_id is not None

@@ -6,26 +6,26 @@ A complete LLM evaluation framework for testing the quality of `cqfi --llm` mode
 
 ## Key components
 
-### 1. **Core models** (`src/cheapquant_fi/evals/models.py`)
+### 1. **Core models** (`src/cqfi/evals/models.py`)
 - `Scenario`, `Turn` — scenario definition (dataclass, holds callables)
 - `TurnResult`, `ScenarioResult` — result models (pydantic, fully JSON-serializable)
 - `Criterion` — protocol for evaluators
 - `ToolCallRecord`, `CriterionResult` — granular result tracking
 
-### 2. **Criteria library** (`src/cheapquant_fi/evals/criteria.py`)
+### 2. **Criteria library** (`src/cqfi/evals/criteria.py`)
 Factory functions for common checks:
 - Text matching: `contains_all`, `contains_none`, `regex_matches`
 - Tool tracking: `tool_was_called`, `tool_not_called`, `no_tool_errors`
 - Numeric validation: `numeric_within` with tolerance + custom extractors
 - All return callables conforming to the `Criterion` protocol
 
-### 3. **LLM-as-judge** (`src/cheapquant_fi/evals/judge.py`)
+### 3. **LLM-as-judge** (`src/cqfi/evals/judge.py`)
 Lightweight wrapper around the Anthropic SDK for qualitative grading:
 - Optional, additive to deterministic criteria
 - Uses cheap/fast judge model (Claude Haiku) by default
 - Fully JSON-structured input/output
 
-### 4. **Multi-turn runner** (`src/cheapquant_fi/evals/runner.py`)
+### 4. **Multi-turn runner** (`src/cqfi/evals/runner.py`)
 `EvalRunner` class that drives scenarios end-to-end:
 - Builds LangGraph ReAct agent directly (not via `SQLAgent.run()`) for true multi-turn memory
 - Threads message history across turns
@@ -33,11 +33,11 @@ Lightweight wrapper around the Anthropic SDK for qualitative grading:
 - Runs all criteria, aggregates pass/fail
 - Times each turn
 
-### 5. **Reporting** (`src/cheapquant_fi/evals/report.py`)
+### 5. **Reporting** (`src/cqfi/evals/report.py`)
 - `print_summary()` — console table showing pass/fail, latency, failing criteria
 - `write_run_artifact()` — JSON serialization to `data/evals/runs/` for historical comparison
 
-### 6. **Example scenarios** (`src/cheapquant_fi/evals/scenarios/`)
+### 6. **Example scenarios** (`src/cqfi/evals/scenarios/`)
 - `curve_queries.py` — input-dataset NL questions (tables, schema, zero-rate lookups)
 - `multi_turn.py` — follow-up scenarios testing conversational memory
 - Expandable: easily add `cmt_pricing.py`, `adversarial.py`, etc.
@@ -117,7 +117,7 @@ The runner builds its own LangGraph ReAct agent instead of using `SQLAgent.run()
 
 ### New files created
 ```
-src/cheapquant_fi/evals/
+src/cqfi/evals/
   __init__.py
   models.py
   criteria.py
@@ -151,7 +151,7 @@ pyproject.toml
 
 1. **Unit tests pass** — `uv run pytest tests/test_evals_harness.py -v` (17/17 ✓)
 2. **Integration tests collect** — `uv run pytest tests/test_eval_scenarios.py --collect-only` (3 tests collected)
-3. **Imports work** — `uv run python -c "from cheapquant_fi.evals import *"`
+3. **Imports work** — `uv run python -c "from cqfi.evals import *"`
 4. **No breaking changes** — existing `uv run pytest` (non-marked tests) still work
 
 ## How to use it now
@@ -168,8 +168,8 @@ uv run pytest -m llm_eval -v
 
 ### Add custom scenarios
 ```python
-# In src/cheapquant_fi/evals/scenarios/my_domain.py
-from cheapquant_fi.evals import Scenario, Turn, no_tool_errors
+# In src/cqfi/evals/scenarios/my_domain.py
+from cqfi.evals import Scenario, Turn, no_tool_errors
 
 SCENARIOS = [
     Scenario(
@@ -185,15 +185,15 @@ SCENARIOS = [
 ]
 
 # Register in scenarios/__init__.py
-from cheapquant_fi.evals.scenarios.my_domain import SCENARIOS as MY_SCENARIOS
+from cqfi.evals.scenarios.my_domain import SCENARIOS as MY_SCENARIOS
 ALL_SCENARIOS = ... + MY_SCENARIOS
 ```
 
 ### Programmatic usage
 ```python
 import asyncio
-from cheapquant_fi.config import load_settings
-from cheapquant_fi.evals import EvalRunner, print_summary
+from cqfi.config import load_settings
+from cqfi.evals import EvalRunner, print_summary
 
 async def main():
     app = load_settings()

@@ -7,7 +7,7 @@ from datetime import date
 
 import pytest
 
-from cheapquant_fi.bond_futures import (
+from cqfi.bond_futures import (
     BOND_FUTURE_CONVENTIONS,
     BondFuture,
     BondFutureError,

@@ -8,28 +8,29 @@ from pathlib import Path
 
 import pytest
 
-from cheapquant_fi.bond_futures import (
+from cqfi.bond_futures import (
     BOND_FUTURE_CONVENTIONS,
     BasketRestrictions,
     BondFuture,
     MaturityRange,
     months,
 )
-from cheapquant_fi.bond_manager import BondManager
-from cheapquant_fi.data.create_bond_analytics_db import (
+from cqfi.bond_manager import BondManager
+from cqfi.data.create_bond_analytics_db import (
     DEFAULT_SEMANTICS_PATH,
     create_schema,
     load_semantics,
     open_sink,
 )
-from cheapquant_fi.delivery_basket import (
+from cqfi.delivery_basket import (
     DeliveryBasket,
     DeliveryBasketError,
     DeliveryBasketManager,
     parse_dlv_command,
     resolve_basket,
 )
-from cheapquant_fi.instruments import Bond
+from cqfi.instruments import Bond
+from cqfi.numeric_term_structure import NumericTermStructure
 
 TODAY = date(2026, 8, 2)
 
@@ -121,7 +122,7 @@ def test_get_by_issuer_warms_the_single_bond_cache(bond_db: Path):
     manager = BondManager.instance()
     manager.get_by_issuer("ITA", db_path=bond_db)
 
-    import cheapquant_fi.bond_manager as bond_manager_module
+    import cqfi.bond_manager as bond_manager_module
 
     original = bond_manager_module._fetch_bond_row
     bond_manager_module._fetch_bond_row = _fail
@@ -219,6 +220,45 @@ def test_duplicate_bonds_are_rejected():
     basket.add(bond)
     with pytest.raises(DeliveryBasketError, match="already in the basket"):
         basket.add(bond)
+
+
+# --------------------------------------------------------------------------- #
+# Per-bond repo term structure overrides
+# --------------------------------------------------------------------------- #
+def test_members_have_no_repo_override_by_default():
+    basket = DeliveryBasket(bond_future=FBTP_U6)
+    bond = _bond("2035-09-10")
+    basket.add(bond)
+    assert basket.repo_term_structure_for(bond) is None
+
+
+def test_add_records_a_per_bond_repo_term_structure():
+    basket = DeliveryBasket(bond_future=FBTP_U6)
+    bond = _bond("2035-09-10")
+    repo = NumericTermStructure({"3m": 2.5}, date(2026, 5, 15))
+    basket.add(bond, repo_term_structure=repo)
+    assert basket.repo_term_structure_for(bond) is repo
+    assert basket.members[0].repo_term_structure_override is repo
+
+
+def test_set_repo_term_structure_updates_an_existing_member():
+    basket = DeliveryBasket(bond_future=FBTP_U6)
+    bond = _bond("2035-09-10")
+    basket.add(bond)
+    repo = NumericTermStructure({"3m": 2.5}, date(2026, 5, 15))
+
+    basket.set_repo_term_structure(bond, repo)
+    assert basket.repo_term_structure_for(bond) is repo
+
+    basket.set_repo_term_structure(bond, None)
+    assert basket.repo_term_structure_for(bond) is None
+
+
+def test_set_repo_term_structure_rejects_an_unknown_bond():
+    basket = DeliveryBasket(bond_future=FBTP_U6)
+    repo = NumericTermStructure({"3m": 2.5}, date(2026, 5, 15))
+    with pytest.raises(DeliveryBasketError, match="not in the basket"):
+        basket.set_repo_term_structure(_bond("2035-09-10"), repo)
 
 
 # --------------------------------------------------------------------------- #

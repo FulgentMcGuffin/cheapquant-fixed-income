@@ -5,8 +5,8 @@ from __future__ import annotations
 import QuantLib as ql
 import pytest
 
-from cheapquant_fi.instruments import _parse_optional_bool
-from cheapquant_fi.issuers import ISSUERS
+from cqfi.instruments import _parse_optional_bool
+from cqfi.issuers import ISSUERS
 
 
 def test_make_fixed_rate_bond_gbr():

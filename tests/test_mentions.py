@@ -6,9 +6,9 @@ import json
 
 import pytest
 
-from cheapquant_fi.agent.cli import _BARE_MENTION_RE, _BOND_RE, route_query
-from cheapquant_fi.cli_tools import resolve_bond_mentions
-from cheapquant_fi.config import DEFAULT_CONFIG_PATH, load_settings
+from cqfi.agent.cli import _BARE_MENTION_RE, _BOND_RE, route_query
+from cqfi.cli_tools import resolve_bond_mentions
+from cqfi.config import DEFAULT_CONFIG_PATH, load_settings
 
 
 @pytest.fixture
@@ -66,8 +66,8 @@ def test_resolve_no_mentions():
 def test_resolve_with_mock_bond(monkeypatch):
     """Test resolution with mocked bond data."""
     # Mock BondManager.get to return a fake bond
-    from cheapquant_fi.bond_manager import BondManager
-    from cheapquant_fi.instruments import Bond
+    from cqfi.bond_manager import BondManager
+    from cqfi.instruments import Bond
     from datetime import date
 
     def mock_get(self, id, db_path=None):
@@ -115,8 +115,8 @@ def test_resolve_with_mock_bond(monkeypatch):
 
 def test_resolve_multiple_mentions_with_mock(monkeypatch):
     """Test resolution of multiple mentions with mocked bonds."""
-    from cheapquant_fi.bond_manager import BondManager
-    from cheapquant_fi.instruments import Bond
+    from cqfi.bond_manager import BondManager
+    from cqfi.instruments import Bond
     from datetime import date
 
     def mock_get(self, id, db_path=None):
@@ -155,7 +155,7 @@ def test_resolve_multiple_mentions_with_mock(monkeypatch):
 
 def test_unresolved_mention(monkeypatch):
     """An unresolvable @mention should be recorded."""
-    from cheapquant_fi.bond_manager import BondManager
+    from cqfi.bond_manager import BondManager
 
     def mock_get(self, id, db_path=None):
         return None
@@ -177,8 +177,8 @@ def test_unresolved_mention(monkeypatch):
 
 def test_resolve_mixed_resolved_unresolved(monkeypatch):
     """Test with both resolved and unresolved mentions."""
-    from cheapquant_fi.bond_manager import BondManager
-    from cheapquant_fi.instruments import Bond
+    from cqfi.bond_manager import BondManager
+    from cqfi.instruments import Bond
     from datetime import date
 
     def mock_get(self, id, db_path=None):

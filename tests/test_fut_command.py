@@ -4,14 +4,14 @@ from __future__ import annotations
 
 import pytest
 
-from cheapquant_fi.agent.cli import (
+from cqfi.agent.cli import (
     EXTRA_TOOLS,
     HELP_TEXT_CQFI,
     LOCAL_TOOL_NAMES,
     handle_dlv_command,
     handle_fut_command,
 )
-from cheapquant_fi.agent.planner import CQFIRulePlanner
+from cqfi.agent.planner import CQFIRulePlanner
 
 
 # --------------------------------------------------------------------------- #
@@ -156,6 +156,18 @@ def test_planner_routes_dlv(text, expected):
     [
         ("/fut IKH7", {"target": "IKH7"}),
         ("/fut mine 2025-10-15", {"target": "mine", "trade_date": "2025-10-15"}),
+        (
+            "/fut IKH7 2025-10-15 3.0",
+            {"target": "IKH7", "trade_date": "2025-10-15", "numeric_term_structure": 3.0},
+        ),
+        (
+            '/fut IKH7 2025-10-15 {"3m": 3.0}',
+            {
+                "target": "IKH7",
+                "trade_date": "2025-10-15",
+                "numeric_term_structure": {"3m": 3.0},
+            },
+        ),
     ],
 )
 def test_planner_routes_fut(text, expected):

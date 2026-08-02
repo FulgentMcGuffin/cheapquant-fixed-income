@@ -6,8 +6,8 @@ from datetime import date, datetime
 
 import pytest
 
-from cheapquant_fi.issuers import ISSUERS
-from cheapquant_fi.tenor import Tenor
+from cqfi.issuers import ISSUERS
+from cqfi.tenor import Tenor
 
 
 def test_parse_compound_tenor():

@@ -1,4 +1,4 @@
-# CheapQuant Fixed Income — path and settings configuration.
+# cqfi — path and settings configuration.
 # Used by both cqfi (CLI) and cqfi-gui.
 #
 # Override at startup:  cqfi --config path/to/cqfi.yaml
@@ -21,10 +21,10 @@
 
 paths:
   # Alternatives (uncomment one pair):
-  # ycs_db: D:/data/sqlite/ycs_data.sqlite
+  # ycs_db: D:/data/sqlitedb/ycs_data.sqlite
   ycs_db: D:/data/duckdb/ycs_data.duckdb
   ycs_semantics: ./semantics/ycs_data.yaml
-  # bond_analytics_db: D:/data/sqlite/bond_analytics.sqlite
+  # bond_analytics_db: D:/data/sqlitedb/bond_analytics.sqlite
   bond_analytics_db: D:/data/duckdb/bond_analytics.duckdb
   bond_analytics_semantics: ./semantics/bond_analytics.yaml
   quant_cache_db: D:/data/duckdb/quant_cache.duckdb
