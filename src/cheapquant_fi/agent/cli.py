@@ -38,19 +38,28 @@ from cheapquant_fi.agent.planner import (
 )
 from cheapquant_fi.cache.manager import CacheManager
 from cheapquant_fi.cli_tools import (
+    build_delivery_basket,
+    build_delivery_basket_lc_tool,
     check_market_context,
     check_market_context_lc_tool,
     compute_bond_analytics,
     compute_bond_analytics_lc_tool,
+    compute_bond_future_analytics,
+    compute_bond_future_analytics_lc_tool,
     compute_cmt_analytics,
     compute_cmt_analytics_lc_tool,
+    execute_dlv_command,
+    execute_fut_command,
     execute_parsed_calc,
     format_calc_result,
+    format_dlv_result,
+    format_fut_result,
     get_bond,
     get_bond_lc_tool,
     parse_calc_command,
     resolve_bond_mentions,
 )
+from cheapquant_fi.delivery_basket import parse_dlv_command, parse_fut_command
 
 # Real, executable LangChain tools bound into SQLAgent/LLMPlanner alongside the
 # built-in SQL tools, so the LLM can genuinely call them (not just read a text
@@ -60,6 +69,18 @@ EXTRA_TOOLS = [
     check_market_context_lc_tool,
     compute_bond_analytics_lc_tool,
     compute_cmt_analytics_lc_tool,
+    build_delivery_basket_lc_tool,
+    compute_bond_future_analytics_lc_tool,
+]
+
+# Tool names handled locally by _run_tool_calls rather than by the MCP server.
+LOCAL_TOOL_NAMES = [
+    "check_market_context",
+    "get_bond",
+    "compute_bond_analytics",
+    "compute_cmt_analytics",
+    "build_delivery_basket",
+    "compute_bond_future_analytics",
 ]
 
 
@@ -87,14 +108,14 @@ HELP_TEXT_CQFI = (
     "    Examples: /mctx 2022-02-17 FRA BOND_ZERO\n"
     "              /mctx 2024-02-15 USA\n"
     "              /mctx 2025-11-18\n"
-    "    Also available in LLM mode: \"Is there a market for France on 17 Feb 2022?\"\n"
+    '    Also available in LLM mode: "Is there a market for France on 17 Feb 2022?"\n'
     "\n"
     "Bond commands:\n"
     "  /bond <id>  — show bond_universe row as JSON (user_friendly_id or bond_id)\n"
     "    Examples: /bond usa10y001\n"
     "              /bond US0001\n"
-    "    Also available in LLM mode: \"Show bond usa10y001 as JSON\", \"what's the\n"
-    "    duration of fraapr029?\"\n"
+    '    Also available in LLM mode: "Show bond usa10y001 as JSON", "what\'s the\n'
+    '    duration of fraapr029?"\n'
     "\n"
     "Quant cache commands:\n"
     "  /cache on   — enable writing analytics to quant_cache_db\n"
@@ -118,8 +139,21 @@ HELP_TEXT_CQFI = (
     "              /calc usa10y001 2024-02-15\n"
     "              /calc DEU 5y\n"
     "              /calc FRA 10y2y 2024-02-15\n"
-    "              /calc @fraapr029 2024-02-15 BOND_ZERO {\"1m\": 2.1, \"3m\": 2.15}\n"
-    "    Also available in LLM mode: \"Calculate analytics for fraapr029\"\n"
+    '              /calc @fraapr029 2024-02-15 BOND_ZERO {"1m": 2.1, "3m": 2.15}\n'
+    '    Also available in LLM mode: "Calculate analytics for fraapr029"\n'
+    "\n"
+    "Bond future commands:\n"
+    "  /dlv <name> <future> [bonds...] [delivery]  — build a delivery basket\n"
+    "  /fut <basket|contract> [date]              — basis analytics, CTD first\n"
+    "    future: exchange code or Bloomberg root (FGBM, OE, IK, ZN, TU, …)\n"
+    "    delivery: M8, U, 6, 2020-09 or U2020 (defaults to front quarterly)\n"
+    "    bonds: '<id>' or '<id>|<conversion_factor>' to hard-code a factor\n"
+    "    Examples: /dlv mybasket FGBM\n"
+    "              /dlv hist FGBS 2020-09\n"
+    "              /dlv mine FOA fraapr029|1.0326 frajun030|1.0291 2025-12\n"
+    "              /fut IKH7\n"
+    "              /fut mybasket 2025-10-15\n"
+    '    Also available in LLM mode: "What is the CTD for the March 2027 BTP future?"\n'
     "\n"
     "Session commands:\n"
     "  save [session_id]   — persist active cache to data/sessions/\n"
@@ -135,7 +169,7 @@ HELP_TEXT_CQFI = (
     "  • With ANTHROPIC_API_KEY set (or --llm / --llm-single-shot), natural\n"
     "    language works:  input: average 10Y zero for Germany in 2017\n"
     "    Bond lookups and market-context queries are genuine LLM tool calls in\n"
-    "    this mode (not just SQL): \"Is there a market for USA on 2024-02-15?\"\n"
+    '    this mode (not just SQL): "Is there a market for USA on 2024-02-15?"\n'
     "  • Without LLM, use rule syntax (same as db-mcp-client):\n"
     "      input: tables\n"
     "      input: schema zero_rates\n"
@@ -165,6 +199,8 @@ _CACHE_OFF_RE = re.compile(r"^/cache\s+off\s*$", re.IGNORECASE)
 _SAVE_CACHE_HELP_RE = re.compile(r"^/save_cache\s*$", re.IGNORECASE)
 _SAVE_CACHE_ON_RE = re.compile(r"^/save_cache\s+on\s*$", re.IGNORECASE)
 _SAVE_CACHE_OFF_RE = re.compile(r"^/save_cache\s+off\s*$", re.IGNORECASE)
+_DLV_HELP_RE = re.compile(r"^/dlv\s*$", re.IGNORECASE)
+_FUT_HELP_RE = re.compile(r"^/fut\s*$", re.IGNORECASE)
 _BARE_MENTION_RE = re.compile(r"^@(?P<id>\S+)$")
 
 _BOND_HELP_TEXT = (
@@ -260,6 +296,48 @@ _CALC_HELP_TEXT = (
     "  /calc usa10y001 2024-02-15         — bond on a specific date\n"
     "  /calc DEU 5y                       — 5Y CMT for Germany\n"
     "  /calc FRA 10y2y 2024-02-15         — forward 10y2y CMT for France\n"
+)
+
+_DLV_HELP_TEXT = (
+    "Bond Future Delivery Baskets\n"
+    "============================\n"
+    "\n"
+    "The /dlv command builds and names the set of bonds deliverable into a bond\n"
+    "future contract. Membership is fixed by the delivery month; analytics can\n"
+    "later be run on any trade date with /fut.\n"
+    "\n"
+    "Arguments: /dlv <name> <future_code> [bond_ids...] [delivery]\n"
+    "  <name>: name to store the basket under\n"
+    "  <future_code>: exchange code or Bloomberg root (FGBM, OE, IK, ZN, TU, …)\n"
+    "  [bond_ids]: optional explicit bonds, each '<id>' or '<id>|<factor>'\n"
+    "  [delivery]: M8 (Jun 2028), U (next Sep), 6 (next quarterly year ending 6),\n"
+    "              2020-09 or U2020. Defaults to the front quarterly contract.\n"
+    "\n"
+    "Examples:\n"
+    "  /dlv mybasket FGBM                 — front Euro-Bobl basket\n"
+    "  /dlv mybasket OE M8                — Euro-Bobl for June 2028\n"
+    "  /dlv hist FGBS 2020-09             — historical Euro-Schatz basket\n"
+    "  /dlv mine FOA fraapr029 frajun030 2025-12\n"
+    "  /dlv mine FOA fraapr029|1.0326 frajun030|1.0291 2025-12\n"
+)
+
+_FUT_HELP_TEXT = (
+    "Bond Future Basis Analytics\n"
+    "===========================\n"
+    "\n"
+    "The /fut command computes the conversion factor, implied repo rate, gross\n"
+    "and net basis, delta, gamma and implied fair futures price for every bond\n"
+    "in a delivery basket, ordered cheapest-to-deliver first.\n"
+    "\n"
+    "Arguments: /fut <basket_or_contract> [trade_date]\n"
+    "  <basket_or_contract>: a basket named by /dlv, or a contract code (IKH7)\n"
+    "  [trade_date]: YYYY-MM-DD (optional; defaults to the latest trade date\n"
+    "                held in bond_analytics for the issuer)\n"
+    "\n"
+    "Examples:\n"
+    "  /fut IKH7                — Italian 10Y basket for March 2027\n"
+    "  /fut IKH7 2026-05-15     — the same basket valued on 15 May 2026\n"
+    "  /fut mybasket 2025-10-15 — a basket stored earlier, with its own factors\n"
 )
 
 
@@ -427,6 +505,32 @@ def handle_calc_command(text: str) -> str | None:
     return None
 
 
+def handle_dlv_command(text: str) -> str | None:
+    """Return /dlv help or invalid-usage text; None if not a /dlv command."""
+    stripped = text.strip()
+    if _DLV_HELP_RE.match(stripped):
+        return _DLV_HELP_TEXT
+    parsed = parse_dlv_command(stripped)
+    if parsed is None:
+        return None
+    if parsed.kind == "invalid":
+        return f"Invalid /dlv command. {parsed.message}\n\n{_DLV_HELP_TEXT}"
+    return None
+
+
+def handle_fut_command(text: str) -> str | None:
+    """Return /fut help or invalid-usage text; None if not a /fut command."""
+    stripped = text.strip()
+    if _FUT_HELP_RE.match(stripped):
+        return _FUT_HELP_TEXT
+    parsed = parse_fut_command(stripped)
+    if parsed is None:
+        return None
+    if parsed.kind == "invalid":
+        return f"Invalid /fut command. {parsed.message}\n\n{_FUT_HELP_TEXT}"
+    return None
+
+
 def route_query(app: AppSettings, text: str) -> RoutedQuery | None:
     """Parse an explicit `<dataset>:` prefix or infer the dataset from keywords."""
     lowered = text.strip().lower()
@@ -498,11 +602,56 @@ async def _run_tool_calls(client: DBClient, calls: list[ToolCall]) -> None:
                 print(f"Tool error: {exc}")
             continue
 
+        if call.name == "build_delivery_basket":
+            try:
+                result = build_delivery_basket(
+                    call.arguments.get("name", ""),
+                    call.arguments.get("future_code", ""),
+                    delivery=call.arguments.get("delivery"),
+                    bond_ids=call.arguments.get("bond_ids"),
+                )
+                print(format_dlv_result(result))
+            except Exception as exc:
+                print(f"Tool error: {exc}")
+            continue
+
+        if call.name == "compute_bond_future_analytics":
+            try:
+                result = compute_bond_future_analytics(
+                    call.arguments.get("target", ""),
+                    trade_date=call.arguments.get("trade_date"),
+                    futures_price=call.arguments.get("futures_price"),
+                    curve_label=call.arguments.get("curve_label", "BOND_ZERO"),
+                    numeric_term_structure=call.arguments.get("numeric_term_structure"),
+                )
+                print(format_fut_result(result))
+            except Exception as exc:
+                print(f"Tool error: {exc}")
+            continue
+
         if call.name not in tools:
             print(f"Tool {call.name!r} not available (have: {tools})")
             continue
         result = await client.call_tool(call.name, call.arguments)
         print(_render(result))
+
+
+def _handle_bond_future_commands(text: str) -> bool:
+    """Execute /dlv or /fut locally. Returns True when one of them handled *text*."""
+    try:
+        dlv_result = execute_dlv_command(text)
+        if dlv_result is not None:
+            print(format_dlv_result(dlv_result))
+            return True
+
+        fut_result = execute_fut_command(text)
+        if fut_result is not None:
+            print(format_fut_result(fut_result))
+            return True
+    except Exception as exc:
+        print(f"Bond future error: {exc}")
+        return True
+    return False
 
 
 async def _query_dataset(
@@ -532,6 +681,16 @@ async def _query_dataset(
     calc_help = handle_calc_command(text)
     if calc_help is not None:
         print(calc_help)
+        return
+
+    dlv_help = handle_dlv_command(text)
+    if dlv_help is not None:
+        print(dlv_help)
+        return
+
+    fut_help = handle_fut_command(text)
+    if fut_help is not None:
+        print(fut_help)
         return
 
     # Check for slash commands before routing to planner
@@ -577,6 +736,9 @@ async def _query_dataset(
             print(f"Analytics error: {exc}")
         return
 
+    if _handle_bond_future_commands(text.strip()):
+        return
+
     use_agent, use_single_shot = resolve_query_mode(
         use_agent=use_agent,
         use_single_shot=use_single_shot,
@@ -608,14 +770,7 @@ async def _query_dataset(
 
         # Add custom tools to available tools list
         tools = list(await client.list_tools())
-        tools.extend(
-            [
-                "check_market_context",
-                "get_bond",
-                "compute_bond_analytics",
-                "compute_cmt_analytics",
-            ]
-        )
+        tools.extend(LOCAL_TOOL_NAMES)
         calls = planner.plan(text, tools)
         if not calls:
             print(f"[{target}] Could not interpret that.\n{RULE_MODE_HINT}")
@@ -651,6 +806,16 @@ def _handle_local_command(
         print(calc_help)
         return True
 
+    dlv_help = handle_dlv_command(text)
+    if dlv_help is not None:
+        print(dlv_help)
+        return True
+
+    fut_help = handle_fut_command(text)
+    if fut_help is not None:
+        print(fut_help)
+        return True
+
     if lowered in ("help", "?"):
         print(HELP_TEXT_CQFI)
         print()
@@ -675,7 +840,9 @@ def _handle_local_command(
         parts = text.split()
         session_id = parts[1] if len(parts) > 1 else None
         sid = cache_mgr.save_session(session_id)
-        print(f"Session saved as {sid!r} -> {cache_mgr.settings.sessions_dir / (sid + '.db')}")
+        print(
+            f"Session saved as {sid!r} -> {cache_mgr.settings.sessions_dir / (sid + '.db')}"
+        )
         return True
 
     if lowered.startswith("load "):
@@ -753,7 +920,7 @@ def _handle_local_command(
             print(f"Analytics error: {exc}")
         return True
 
-    return False
+    return _handle_bond_future_commands(text.strip())
 
 
 async def _interactive(
@@ -784,7 +951,9 @@ async def _interactive(
 
         rewritten, unresolved = resolve_bond_mentions(query)
         if unresolved:
-            print(f"Warning: could not resolve bond mentions: {', '.join(f'@{id}' for id in unresolved)}")
+            print(
+                f"Warning: could not resolve bond mentions: {', '.join(f'@{id}' for id in unresolved)}"
+            )
 
         routed = route_query(app, rewritten)
         if routed is None:
@@ -817,10 +986,14 @@ async def _amain(args: argparse.Namespace) -> None:
                 return
             rewritten, unresolved = resolve_bond_mentions(args.query)
             if unresolved:
-                print(f"Warning: could not resolve bond mentions: {', '.join(f'@{id}' for id in unresolved)}")
+                print(
+                    f"Warning: could not resolve bond mentions: {', '.join(f'@{id}' for id in unresolved)}"
+                )
             routed = route_query(app, rewritten)
             if routed is None:
-                print("Ambiguous query — prefix with input:, cache:, or bond_analytics:")
+                print(
+                    "Ambiguous query — prefix with input:, cache:, or bond_analytics:"
+                )
                 return
             await _query_dataset(
                 app,

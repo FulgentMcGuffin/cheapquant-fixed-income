@@ -8,12 +8,9 @@ import QuantLib as ql
 import polars as pl
 
 from cheapquant_fi.data.rates_loader import load_curve_rates
+from cheapquant_fi.date_utils import to_ql_date as _to_ql_date
 from cheapquant_fi.issuers import IssuerProfile, RateType, resolve_issuer
 from cheapquant_fi.quantlib.quantlib_curve import QLZeroInterp, ql_build_zero_curve
-
-
-def _to_ql_date(value: date) -> ql.Date:
-    return ql.Date(value.day, value.month, value.year)
 
 
 def ql_price_cmts_from_rates(

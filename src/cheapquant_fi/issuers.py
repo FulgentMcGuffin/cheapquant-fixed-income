@@ -14,9 +14,27 @@ from decorules import (
     raise_if_false_on_instance,
 )
 
+from cheapquant_fi.date_utils import (
+    from_ql_date as _from_ql_date,
+    to_ql_date as _to_ql_date,
+)
+
+
 class RateType(str, Enum):
     ZERO = "zero"
     PAR = "par"
+
+
+class RepoMarket(str, Enum):
+    """Which repo market's conventions apply to a financing leg.
+
+    Some sovereigns are financed under two different day-count conventions
+    depending on where the repo is transacted — JGBs accrue Act/365F onshore
+    but Act/360 offshore.  ``INTERNATIONAL`` is the default everywhere.
+    """
+
+    INTERNATIONAL = "INTERNATIONAL"
+    DOMESTIC = "DOMESTIC"
 
 
 @dataclass(frozen=True)
@@ -53,17 +71,12 @@ class ExDividendConvention:
 _NO_EX_COUPON: tuple = (ql.Period(), ql.NullCalendar(), ql.Unadjusted, False)
 
 
-def _to_ql_date(value: date) -> ql.Date:
-    return ql.Date(value.day, value.month, value.year)
-
-
-def _from_ql_date(value: ql.Date) -> date:
-    return date(value.year(), value.month(), value.dayOfMonth())
-
-
 @dataclass(frozen=True)
-@raise_if_false_on_instance(lambda inst: inst.settlement_days >= 0,
-                              ValueError, "settlement_days must be non-negative")
+@raise_if_false_on_instance(
+    lambda inst: inst.settlement_days >= 0,
+    ValueError,
+    "settlement_days must be non-negative",
+)
 class IssuerProfile(metaclass=HasRulesActions):
     """QuantLib calendar and market conventions for a sovereign issuer."""
 
@@ -79,9 +92,41 @@ class IssuerProfile(metaclass=HasRulesActions):
     ex_dividend: ExDividendConvention | None = None
     repo_day_count: ql.DayCounter | None = None
     repo_settlement_days: int | None = None
+    domestic_repo_day_count: ql.DayCounter | None = None
+    domestic_repo_settlement_days: int | None = None
 
     def calendar(self) -> ql.Calendar:
         return self.calendar_factory()
+
+    def repo_conventions(
+        self,
+        market: RepoMarket = RepoMarket.INTERNATIONAL,
+    ) -> tuple[ql.DayCounter, int]:
+        """Return ``(day_count, settlement_days)`` for the given repo market.
+
+        ``repo_day_count`` holds the international (offshore) convention and is
+        the fallback whenever no domestic override is configured.
+
+        Args:
+            market: Which repo market to price against.
+
+        Returns:
+            The day counter and settlement lag to accrue financing with.
+
+        Raises:
+            ValueError: If the issuer has no repo conventions configured.
+        """
+        if market is RepoMarket.DOMESTIC and self.domestic_repo_day_count is not None:
+            return (
+                self.domestic_repo_day_count,
+                self.domestic_repo_settlement_days or 0,
+            )
+        if self.repo_day_count is None:
+            raise ValueError(
+                f"Issuer {self.source_code!r} has no repo conventions configured; "
+                "set repo_day_count and repo_settlement_days on its IssuerProfile"
+            )
+        return self.repo_day_count, self.repo_settlement_days or 0
 
     def as_unadjusted(self) -> IssuerProfile:
         """Return a copy for theoretical (no calendar) coupon schedules.
@@ -102,9 +147,7 @@ class IssuerProfile(metaclass=HasRulesActions):
         ql_settlement = _to_ql_date(trade_date)
         calendar = self.calendar()
         for _ in range(self.settlement_days):
-            ql_settlement = calendar.advance(
-                ql_settlement, 1, ql.Days, ql.Following
-            )
+            ql_settlement = calendar.advance(ql_settlement, 1, ql.Days, ql.Following)
         return _from_ql_date(ql_settlement)
 
     def make_QL_fixed_rate_bond(
@@ -202,6 +245,20 @@ ISSUERS: dict[str, IssuerProfile] = {
         name="Belgium",
         currency="EUR",
         # OLOs (Obligations Linéaires): annual coupon, TARGET
+        calendar_factory=lambda: ql.TARGET(),
+        day_count=ql.ActualActual(ql.ActualActual.ISDA),
+        settlement_days=2,
+        frequency=ql.Annual,
+        default_rate_type=RateType.ZERO,
+        # Repo (Eurozone GC / €STR-referenced): Act/360, same-day (T+0) settlement
+        repo_day_count=ql.Actual360(),
+        repo_settlement_days=0,
+    ),
+    "EU": IssuerProfile(
+        source_code="EU",
+        name="European Union",
+        currency="EUR",
+        # EU-issued bonds (SURE / NextGenerationEU): annual coupon, TARGET
         calendar_factory=lambda: ql.TARGET(),
         day_count=ql.ActualActual(ql.ActualActual.ISDA),
         settlement_days=2,
@@ -365,6 +422,9 @@ ISSUERS: dict[str, IssuerProfile] = {
         settlement_days=2,
         frequency=ql.Annual,
         default_rate_type=RateType.ZERO,
+        # Repo (Swiss Confederation GC / SARON-referenced): Act/360, T+0
+        repo_day_count=ql.Actual360(),
+        repo_settlement_days=0,
     ),
     # ------------------------------------------------------------------ #
     # Asia-Pacific
@@ -414,9 +474,13 @@ ISSUERS: dict[str, IssuerProfile] = {
         settlement_days=2,
         frequency=ql.Semiannual,
         default_rate_type=RateType.ZERO,
-        # Repo (JGB GC / TONAR-referenced): Act/365, same-day (T+0) settlement
-        repo_day_count=ql.Actual365Fixed(),
+        # Repo (JGB GC / TONAR-referenced), same-day (T+0) settlement.  The
+        # international / off-shore leg accrues Act/360; the onshore domestic
+        # market accrues Act/365 Fixed.
+        repo_day_count=ql.Actual360(),
         repo_settlement_days=0,
+        domestic_repo_day_count=ql.Actual365Fixed(),
+        domestic_repo_settlement_days=0,
     ),
     "KOR": IssuerProfile(
         source_code="KOR",
@@ -446,6 +510,9 @@ SOURCE_ALIASES: dict[str, str] = {
     "BELGIUM": "BEL",
     "GERMANY": "DEU",
     "DE": "DEU",
+    "EUROPEAN UNION": "EU",
+    "NGEU": "EU",
+    "EUB": "EU",
     "BUND": "DEU",
     "BUNDS": "DEU",
     "BOBL": "DEU",
@@ -475,7 +542,7 @@ SOURCE_ALIASES: dict[str, str] = {
     "RUSSIA": "RUS",
     "OFZ": "RUS",
     "SWITZERLAND": "CHE",
-    "SWISS": "CHE",    
+    "SWISS": "CHE",
     # Asia-Pacific
     "AUSTRALIA": "AUS",
     "ACGB": "AUS",
@@ -493,12 +560,11 @@ SOURCE_ALIASES: dict[str, str] = {
     "KTBS": "KOR",
 }
 
+
 def resolve_issuer(source_or_name: str) -> IssuerProfile:
     key = source_or_name.strip().upper()
     code = SOURCE_ALIASES.get(key, key)
     if code not in ISSUERS:
         supported = ", ".join(sorted(ISSUERS))
-        raise ValueError(
-            f"Unknown issuer {source_or_name!r}. Supported: {supported}"
-        )
+        raise ValueError(f"Unknown issuer {source_or_name!r}. Supported: {supported}")
     return ISSUERS[code]

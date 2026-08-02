@@ -17,6 +17,7 @@ from cheapquant_fi.evals.models import (
     TurnResult,
 )
 from cheapquant_fi.evals.report import print_summary
+from cheapquant_fi.evals.runner import _flatten_token_usage
 
 
 @pytest.fixture
@@ -36,6 +37,69 @@ def sample_turn() -> TurnResult:
         latency_ms=1234.5,
         criteria_results=[],
     )
+
+
+class TestFlattenTokenUsage:
+    """``TurnResult.token_usage`` is ``dict[str, int]``, but LangChain nests
+    per-kind breakdowns under ``*_token_details``."""
+
+    def test_flat_usage_passes_through(self):
+        usage = {"input_tokens": 120, "output_tokens": 45, "total_tokens": 165}
+        assert _flatten_token_usage(usage) == usage
+
+    def test_nested_details_are_flattened(self):
+        flat = _flatten_token_usage(
+            {
+                "input_tokens": 120,
+                "output_tokens": 45,
+                "input_token_details": {"cache_read": 10, "cache_creation": 5},
+                "output_token_details": {"reasoning": 7},
+            }
+        )
+        assert flat == {
+            "input_tokens": 120,
+            "output_tokens": 45,
+            "input_token_cache_read": 10,
+            "input_token_cache_creation": 5,
+            "output_token_reasoning": 7,
+        }
+
+    def test_result_is_accepted_by_the_model(self):
+        """The whole point: the flattened dict must validate as dict[str, int]."""
+        usage = _flatten_token_usage(
+            {
+                "input_tokens": 120,
+                "input_token_details": {
+                    "cache_read": 0,
+                    "cache_creation": 0,
+                    "ephemeral_1h_input_tokens": 0,
+                },
+            }
+        )
+        turn = TurnResult(
+            user_input="q",
+            answer="a",
+            tool_calls=[],
+            token_usage=usage,
+            latency_ms=1.0,
+            criteria_results=[],
+        )
+        assert turn.token_usage["input_tokens"] == 120
+        assert turn.token_usage["input_token_ephemeral_1h_input_tokens"] == 0
+
+    def test_non_numeric_and_boolean_values_are_dropped(self):
+        flat = _flatten_token_usage(
+            {
+                "input_tokens": 10,
+                "model_name": "claude-opus-5",
+                "cached": True,
+                "input_token_details": {"cache_read": 3, "note": "n/a"},
+            }
+        )
+        assert flat == {"input_tokens": 10, "input_token_cache_read": 3}
+
+    def test_empty_usage(self):
+        assert _flatten_token_usage({}) == {}
 
 
 class TestContainsCriteria:
@@ -148,7 +212,9 @@ class TestNumericCriteria:
                 return 98.75
             return None
 
-        criterion = numeric_within(expected=98.75, tolerance=0.0, extractor=extract_98_75)
+        criterion = numeric_within(
+            expected=98.75, tolerance=0.0, extractor=extract_98_75
+        )
         result = criterion(sample_turn)
         assert result.passed
 

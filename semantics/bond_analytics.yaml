@@ -9,6 +9,7 @@ vocabulary:
   # possible values stored in the issuer column, these match the ISSUERS dictionary in the issuers.py file
   issuers:
     United States: USA
+    European Union: EU
     Germany: DEU
     United Kingdom: GBR
     UK: GBR
@@ -47,6 +48,7 @@ vocabulary:
     Norway: NOR
   currencies:
     USA: USD
+    EU: EUR
     DEU: EUR
     GBR: GBP
     JPN: JPY

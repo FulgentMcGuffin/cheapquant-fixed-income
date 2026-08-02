@@ -11,14 +11,31 @@ from typing import Literal
 from langchain_core.tools import StructuredTool
 
 from cheapquant_fi.analytics_input import BondAnalyticsInput, CmtAnalyticsInput
+from cheapquant_fi.bond_future_input import BondFutureInput
+from cheapquant_fi.bond_futures import (
+    BondFuture,
+    resolve_bond_future_convention,
+    resolve_delivery_month,
+)
 from cheapquant_fi.bond_manager import BondManager
 from cheapquant_fi.composite_tenor import CompositeTenor
 from cheapquant_fi.data.rates_loader import list_available_dates
+from cheapquant_fi.delivery_basket import (
+    DeliveryBasket,
+    DeliveryBasketManager,
+    parse_dlv_command,
+    parse_fut_command,
+    resolve_basket,
+)
 from cheapquant_fi.issuers import resolve_issuer
 from cheapquant_fi.numeric_term_structure import NumericTermStructure
 from cheapquant_fi.quantlib.quantlib_analytics_calculator import (
     QuantLibAnalyticsCalculator,
 )
+from cheapquant_fi.quantlib.quantlib_bond_future_calculator import (
+    QuantLibBondFutureCalculator,
+)
+from cheapquant_fi.quantlib.quantlib_market_context import QuantlibMarketContext
 from cheapquant_fi.quantlib.quantlib_market_context_manager import (
     QuantlibMarketContextManager,
 )
@@ -183,6 +200,31 @@ def execute_calc_command(text: str) -> tuple[CalcParseResult, dict] | None:
     if parsed is None or parsed.kind in ("help", "invalid"):
         return None
     return parsed, execute_parsed_calc(parsed)
+
+
+def _market_context_for(
+    as_of: date,
+    issuer: str,
+    curve_label: str,
+) -> QuantlibMarketContext | None:
+    """Return the market context for *as_of*, building the issuer's curve first.
+
+    ``QuantlibMarketContextManager.get`` returns that issuer's *curve handle*
+    when an issuer is supplied, not the context, so the context itself has to
+    be fetched in a second call without one.
+
+    Args:
+        as_of: Valuation date.
+        issuer: Issuer code whose curve must exist.
+        curve_label: Curve collection label.
+
+    Returns:
+        The context, or ``None`` when the issuer's curve cannot be built.
+    """
+    manager = QuantlibMarketContextManager.instance()
+    if manager.get(as_of, issuer, curve_label) is None:
+        return None
+    return manager.get(as_of)
 
 
 def check_market_context(
@@ -363,7 +405,9 @@ def compute_bond_analytics(
         repo_term_structure = None
         if numeric_term_structure:
             try:
-                repo_term_structure = NumericTermStructure(numeric_term_structure)
+                repo_term_structure = NumericTermStructure(
+                    numeric_term_structure, trade_date
+                )
             except Exception as e:
                 return {
                     "status": "error",
@@ -387,8 +431,7 @@ def compute_bond_analytics(
 
         # Get market context
         try:
-            manager = QuantlibMarketContextManager.instance()
-            market_context = manager.get(trade_date, bond.issuer, curve_label)
+            market_context = _market_context_for(trade_date, bond.issuer, curve_label)
             if market_context is None:
                 return {
                     "status": "error",
@@ -408,10 +451,12 @@ def compute_bond_analytics(
         # Compute analytics
         try:
             calculator = QuantLibAnalyticsCalculator()
-            analytics_output, _cmt_metrics, _fc_cmt_metrics = calculator.compute_bond_analytics(
-                analytics_input,
-                market_context,
-                curve_label=curve_label,
+            analytics_output, _cmt_metrics, _fc_cmt_metrics = (
+                calculator.compute_bond_analytics(
+                    analytics_input,
+                    market_context,
+                    curve_label=curve_label,
+                )
             )
         except Exception as e:
             return {
@@ -482,8 +527,9 @@ def compute_cmt_analytics(
             }
 
         try:
-            manager = QuantlibMarketContextManager.instance()
-            market_context = manager.get(resolved_date, issuer_code, curve_label)
+            market_context = _market_context_for(
+                resolved_date, issuer_code, curve_label
+            )
             if market_context is None:
                 return {
                     "status": "error",
@@ -539,6 +585,227 @@ def compute_cmt_analytics(
         }
 
 
+def build_delivery_basket(
+    name: str,
+    future_code: str,
+    delivery: str | None = None,
+    bond_ids: list[str] | None = None,
+) -> dict:
+    """Build and store a named delivery basket for a bond future contract.
+
+    Args:
+        name: Name to store the basket under, for later use by /fut.
+        future_code: Bond future code such as "FBTP", "IK", "FGBM" or "IKU9".
+        delivery: Optional delivery month: "M8" (June 2028), "U" (next
+            September), "6" (next quarterly month in a year ending in 6),
+            "2020-09" or "U2020". Defaults to the front quarterly contract.
+        bond_ids: Optional explicit deliverable bonds, each a user_friendly_id
+            or bond_id, optionally suffixed with "|<conversion factor>" to
+            hard-code the factor. When omitted the basket is populated from
+            every eligible bond in bond_universe.
+
+    Returns:
+        Dictionary with status, the resolved contract and the deliverable bonds.
+    """
+    try:
+        convention = resolve_bond_future_convention(future_code)
+        year, month = resolve_delivery_month(delivery)
+        future = BondFuture(
+            convention=convention, delivery_month=month, delivery_year=year
+        )
+
+        if bond_ids:
+            specs: list[tuple[str, float | None]] = []
+            for token in bond_ids:
+                identifier, _, factor = str(token).partition("|")
+                specs.append((identifier, float(factor) if factor else None))
+            basket = DeliveryBasket.from_bond_ids(future, specs, name=name)
+        else:
+            basket = DeliveryBasket.auto(future, name=name)
+
+        DeliveryBasketManager.instance().put(name, basket)
+        return {
+            "status": "success",
+            "name": name,
+            "contract": str(future),
+            "delivery_date": future.delivery_end_date().isoformat(),
+            "bond_count": len(basket),
+            "basket_json": basket.as_json(indent=2),
+            "dataframe": basket.to_polars(),
+            "message": (
+                f"Basket {name!r} holds {len(basket)} bond(s) deliverable into "
+                f"{future} on {future.delivery_end_date()}"
+            ),
+        }
+    except Exception as exc:
+        return {
+            "status": "error",
+            "name": name,
+            "error": str(exc),
+            "message": f"Failed to build delivery basket: {exc}",
+        }
+
+
+def compute_bond_future_analytics(
+    target: str,
+    trade_date: str | None = None,
+    futures_price: float | None = None,
+    curve_label: str = "BOND_ZERO",
+    numeric_term_structure: dict[str, float] | None = None,
+) -> dict:
+    """Compute basis analytics for a bond future delivery basket.
+
+    Returns the conversion factor, implied repo rate, gross and net basis,
+    delta, gamma and implied fair futures price for every deliverable bond,
+    ordered cheapest-to-deliver first.
+
+    Args:
+        target: A basket name stored earlier by /dlv, or a bond future code
+            such as "IKH7" to build the basket on the fly.
+        trade_date: Analytics date in "YYYY-MM-DD" format. Defaults to the
+            latest trade date held in bond_analytics for the issuer.
+        futures_price: Observed futures price. When omitted the price is
+            implied so the cheapest-to-deliver bond's net basis is zero.
+        curve_label: Curve collection label. Defaults to "BOND_ZERO".
+        numeric_term_structure: Optional repo curve mapping tenor labels such
+            as "3m" to rates in percent.
+
+    Returns:
+        Dictionary with status and the per-bond analytics when successful.
+    """
+    try:
+        basket = resolve_basket(target)
+        issuer = basket.bond_future.convention.issuer_code
+
+        resolved_date, date_error = _resolve_bond_future_trade_date(issuer, trade_date)
+        if date_error is not None:
+            date_error["target"] = target
+            return date_error
+
+        repo_term_structure = None
+        if numeric_term_structure:
+            repo_term_structure = NumericTermStructure(
+                numeric_term_structure, resolved_date
+            )
+
+        market_context = _market_context_for(resolved_date, issuer, curve_label)
+        if market_context is None:
+            return {
+                "status": "error",
+                "target": target,
+                "message": (
+                    f"No market context available for {issuer} on "
+                    f"{resolved_date} with curve {curve_label}"
+                ),
+            }
+
+        request = BondFutureInput.from_basket(
+            basket,
+            resolved_date,
+            repo_term_structure=repo_term_structure,
+            curve_label=curve_label,
+            futures_price=futures_price,
+        )
+        result = QuantLibBondFutureCalculator().compute_bond_future_analytics(
+            request, market_context, curve_label=curve_label
+        )
+        return {
+            "status": "success",
+            "target": target,
+            "contract": str(basket.bond_future),
+            "date": resolved_date.isoformat(),
+            "curve_label": curve_label,
+            "futures_price": result.futures_price,
+            "futures_price_is_implied": result.futures_price_is_implied,
+            "ctd": result.ctd().bond.user_friendly_id or result.ctd().bond.bond_id,
+            "analytics_json": result.as_json(indent=2),
+            "dataframe": result.to_polars(),
+            "message": (
+                f"{len(result)} deliverable bond(s) for {basket.bond_future} on "
+                f"{resolved_date}; CTD net basis "
+                f"{result.ctd().net_basis:.6f}"
+            ),
+        }
+    except Exception as exc:
+        return {
+            "status": "error",
+            "target": target,
+            "error": str(exc),
+            "message": f"Failed to compute bond future analytics: {exc}",
+        }
+
+
+def _resolve_bond_future_trade_date(
+    issuer: str, trade_date: str | None
+) -> tuple[date | None, dict | None]:
+    """Resolve an explicit trade date, or fall back to the latest analytics date."""
+    if trade_date:
+        if not _ISO_DATE_RE.match(trade_date):
+            return None, {
+                "status": "error",
+                "message": f"Invalid trade_date {trade_date!r}; expected YYYY-MM-DD",
+            }
+        return date.fromisoformat(trade_date), None
+
+    latest = BondManager.instance().latest_analytics_trade_date(issuer)
+    if latest is None:
+        return None, {
+            "status": "error",
+            "message": (
+                f"No trade date held in bond_analytics for {issuer}; "
+                "supply one explicitly"
+            ),
+        }
+    return latest, None
+
+
+def execute_dlv_command(text: str) -> dict | None:
+    """Parse and execute ``/dlv`` when it describes a basket to build."""
+    parsed = parse_dlv_command(text)
+    if parsed is None or parsed.kind in ("help", "invalid"):
+        return None
+    return build_delivery_basket(
+        parsed.name,
+        parsed.future_code,
+        delivery=parsed.delivery_token,
+        bond_ids=[
+            identifier if factor is None else f"{identifier}|{factor}"
+            for identifier, factor in parsed.bond_specs
+        ]
+        or None,
+    )
+
+
+def execute_fut_command(text: str) -> dict | None:
+    """Parse and execute ``/fut`` when it requests analytics."""
+    parsed = parse_fut_command(text)
+    if parsed is None or parsed.kind in ("help", "invalid"):
+        return None
+    return compute_bond_future_analytics(
+        parsed.target,
+        trade_date=parsed.trade_date.isoformat() if parsed.trade_date else None,
+    )
+
+
+def format_dlv_result(result: dict) -> str:
+    """Render a delivery basket tool result for CLI output."""
+    if result.get("status") != "success":
+        return f"Error: {result.get('message', result)}"
+    return f"{result['message']}\n\n{result['dataframe']}"
+
+
+def format_fut_result(result: dict) -> str:
+    """Render a bond future analytics tool result for CLI output."""
+    if result.get("status") != "success":
+        return f"Error: {result.get('message', result)}"
+    implied = " (implied)" if result["futures_price_is_implied"] else ""
+    return (
+        f"{result['contract']} on {result['date']} — futures price "
+        f"{result['futures_price']:.6f}{implied}, CTD {result['ctd']}\n\n"
+        f"{result['dataframe']}"
+    )
+
+
 # Real, executable LangChain tools — bound directly into SQLAgent/LLMPlanner via
 # extra_tools so the LLM can genuinely call these functions (not just read a text
 # description of them). Schemas are derived from the Google-style docstrings and
@@ -564,5 +831,17 @@ compute_bond_analytics_lc_tool = StructuredTool.from_function(
 compute_cmt_analytics_lc_tool = StructuredTool.from_function(
     func=compute_cmt_analytics,
     name="compute_cmt_analytics",
+    parse_docstring=True,
+)
+
+build_delivery_basket_lc_tool = StructuredTool.from_function(
+    func=build_delivery_basket,
+    name="build_delivery_basket",
+    parse_docstring=True,
+)
+
+compute_bond_future_analytics_lc_tool = StructuredTool.from_function(
+    func=compute_bond_future_analytics,
+    name="compute_bond_future_analytics",
     parse_docstring=True,
 )

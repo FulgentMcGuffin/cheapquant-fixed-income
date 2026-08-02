@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from collections.abc import Mapping
 from typing import Any
 
 from langchain_core.messages import (
@@ -47,9 +48,7 @@ class EvalRunner:
             agent = create_react_agent(
                 _build_model(self.model),
                 tools,
-                prompt=SystemMessage(
-                    content=_compose_system_prompt(profile_prompt)
-                ),
+                prompt=SystemMessage(content=_compose_system_prompt(profile_prompt)),
             )
 
             history: list[BaseMessage] = []
@@ -179,14 +178,40 @@ def _find_tool_result(history: list[BaseMessage], tool_id: str) -> str:
     """Find the result for a tool call by ID."""
     for msg in history:
         if isinstance(msg, ToolMessage):
-            if getattr(msg, "tool_use_id", None) == tool_id or getattr(
-                msg, "id", None
-            ) == tool_id:
+            if (
+                getattr(msg, "tool_use_id", None) == tool_id
+                or getattr(msg, "id", None) == tool_id
+            ):
                 result = msg.content
                 if isinstance(result, str):
                     return result[:200]  # truncate long results
                 return str(result)[:200]
     return "(no result found)"
+
+
+def _flatten_token_usage(usage: Mapping[str, Any]) -> dict[str, int]:
+    """Flatten a usage mapping down to scalar counts.
+
+    LangChain nests per-kind breakdowns under ``input_token_details`` and
+    ``output_token_details``.  Those are flattened to ``<group>_<key>`` entries
+    so no counts are lost, and non-numeric values are dropped, leaving a plain
+    ``dict[str, int]``.
+    """
+    flat: dict[str, int] = {}
+    for key, value in usage.items():
+        if isinstance(value, Mapping):
+            prefix = key[: -len("_details")] if key.endswith("_details") else key
+            for detail_key, detail_value in value.items():
+                if _is_count(detail_value):
+                    flat[f"{prefix}_{detail_key}"] = detail_value
+        elif _is_count(value):
+            flat[key] = value
+    return flat
+
+
+def _is_count(value: Any) -> bool:
+    """Whether *value* is a token count (``bool`` is an int but never a count)."""
+    return isinstance(value, int) and not isinstance(value, bool)
 
 
 def _extract_token_usage(history: list[BaseMessage]) -> dict[str, int]:
@@ -195,9 +220,9 @@ def _extract_token_usage(history: list[BaseMessage]) -> dict[str, int]:
         if isinstance(msg, AIMessage):
             # Check for usage_metadata or response_metadata
             if hasattr(msg, "usage_metadata") and msg.usage_metadata:
-                return dict(msg.usage_metadata)
+                return _flatten_token_usage(msg.usage_metadata)
             if hasattr(msg, "response_metadata") and msg.response_metadata:
                 usage = msg.response_metadata.get("usage", {})
                 if usage:
-                    return dict(usage)
+                    return _flatten_token_usage(usage)
     return {}

@@ -9,6 +9,10 @@ import QuantLib as ql
 from cheapquant_fi.analytics_input import BondAnalyticsInput, CmtAnalyticsInput
 from cheapquant_fi.analytics_output import FixedIncomeAnalyticsOutput
 from cheapquant_fi.cache.decorators import cache_bond_analytics, cache_cmt_analytics
+from cheapquant_fi.date_utils import (
+    from_ql_date as _from_ql_date,
+    to_ql_date as _to_ql_date,
+)
 from cheapquant_fi.issuers import IssuerProfile, resolve_issuer
 from cheapquant_fi.quantlib.quantlib_market_context import QuantlibMarketContext
 from cheapquant_fi.numeric_term_structure import NumericTermStructure
@@ -22,14 +26,6 @@ _ROLL_TENORS: tuple[tuple[str, Tenor], ...] = (
     ("6m", Tenor.parse("6m")),
     ("1y", Tenor.parse("1y")),
 )
-
-
-def _to_ql_date(value: date) -> ql.Date:
-    return ql.Date(value.day, value.month, value.year)
-
-
-def _from_ql_date(value: ql.Date) -> date:
-    return date(value.year(), value.month(), value.dayOfMonth())
 
 
 def _bond_settlement(issuer: IssuerProfile, settlement: ql.Date) -> ql.Date:

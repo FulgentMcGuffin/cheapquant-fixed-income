@@ -8,6 +8,7 @@ import re
 from mcp_data.client.planner import Planner, RuleBasedPlanner, ToolCall
 
 from cheapquant_fi.cli_tools import parse_calc_command
+from cheapquant_fi.delivery_basket import parse_dlv_command, parse_fut_command
 
 _LIST_TABLES_RE = re.compile(
     r"\b(?:what|which|show|list|name)\b.*\btables?\b|\btables?\b.*\b(?:exist|available|there)\b",
@@ -36,9 +37,7 @@ class CQFIRulePlanner(RuleBasedPlanner):
             return calls
         return super().plan(query, available_tools)
 
-    def _extended_parse(
-        self, query: str, available_tools: list[str]
-    ) -> list[ToolCall]:
+    def _extended_parse(self, query: str, available_tools: list[str]) -> list[ToolCall]:
         text = query.strip()
         lowered = text.lower()
 
@@ -103,8 +102,36 @@ class CQFIRulePlanner(RuleBasedPlanner):
                 if calc_parsed.trade_date:
                     kwargs["trade_date"] = calc_parsed.trade_date
                 if calc_parsed.numeric_term_structure is not None:
-                    kwargs["numeric_term_structure"] = calc_parsed.numeric_term_structure
+                    kwargs["numeric_term_structure"] = (
+                        calc_parsed.numeric_term_structure
+                    )
                 return [ToolCall("compute_bond_analytics", kwargs)]
+
+        # Handle /dlv command syntax (build a delivery basket)
+        dlv_parsed = parse_dlv_command(text)
+        if dlv_parsed is not None and dlv_parsed.kind in ("auto", "explicit"):
+            if "build_delivery_basket" in available_tools:
+                kwargs = {
+                    "name": dlv_parsed.name,
+                    "future_code": dlv_parsed.future_code,
+                }
+                if dlv_parsed.delivery_token:
+                    kwargs["delivery"] = dlv_parsed.delivery_token
+                if dlv_parsed.bond_specs:
+                    kwargs["bond_ids"] = [
+                        identifier if factor is None else f"{identifier}|{factor}"
+                        for identifier, factor in dlv_parsed.bond_specs
+                    ]
+                return [ToolCall("build_delivery_basket", kwargs)]
+
+        # Handle /fut command syntax (bond future basis analytics)
+        fut_parsed = parse_fut_command(text)
+        if fut_parsed is not None and fut_parsed.kind == "analytics":
+            if "compute_bond_future_analytics" in available_tools:
+                kwargs = {"target": fut_parsed.target}
+                if fut_parsed.trade_date:
+                    kwargs["trade_date"] = fut_parsed.trade_date.isoformat()
+                return [ToolCall("compute_bond_future_analytics", kwargs)]
 
         return []
 

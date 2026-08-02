@@ -7,8 +7,7 @@ from pathlib import Path
 
 import polars as pl
 
-from mcp_data.backends.sqlite_backend import SQLiteSource
-
+from cheapquant_fi.db_backend import source_class_for
 from cheapquant_fi.issuers import IssuerProfile, RateType
 from cheapquant_fi.ycs_tenors import TENOR_COLUMNS
 
@@ -33,15 +32,13 @@ def load_curve_rates(
     val_date = _parse_date(valuation_date)
     date_str = val_date.isoformat()
 
-    with SQLiteSource(db_path, read_only=True) as db:
-        frame = db.run_query(
-            f"""
+    with source_class_for(db_path)(db_path, read_only=True) as db:
+        frame = db.run_query(f"""
             SELECT *
             FROM {table}
             WHERE source = '{issuer.source_code}'
               AND date = '{date_str}'
-            """
-        )
+            """)
 
     if frame.is_empty():
         raise LookupError(
@@ -80,12 +77,10 @@ def list_available_dates(
 ) -> pl.DataFrame:
     """Return distinct valuation dates available for an issuer."""
     table = "zero_rates" if rate_type == RateType.ZERO else "par_rates"
-    with SQLiteSource(db_path, read_only=True) as db:
-        return db.run_query(
-            f"""
+    with source_class_for(db_path)(db_path, read_only=True) as db:
+        return db.run_query(f"""
             SELECT date
             FROM {table}
             WHERE source = '{issuer.source_code}'
             ORDER BY date
-            """
-        )
+            """)

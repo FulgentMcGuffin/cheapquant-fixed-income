@@ -63,24 +63,24 @@ _READ_ONLY_SQL_RE = re.compile(
 # Matches ISO dates/datetimes, US (mm/dd/yyyy) and EU (dd.mm.yyyy or dd/mm/yyyy)
 _DATE_VALUE_RE = re.compile(
     r"^\s*(?:"
-    r"\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2})?)?"   # ISO / ISO-datetime
-    r"|\d{2}/\d{2}/\d{4}"                                   # US mm/dd/yyyy
-    r"|\d{2}\.\d{2}\.\d{4}"                                 # EU dd.mm.yyyy
-    r"|\d{2}-\d{2}-\d{4}"                                   # EU dd-mm-yyyy
+    r"\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2})?)?"  # ISO / ISO-datetime
+    r"|\d{2}/\d{2}/\d{4}"  # US mm/dd/yyyy
+    r"|\d{2}\.\d{2}\.\d{4}"  # EU dd.mm.yyyy
+    r"|\d{2}-\d{2}-\d{4}"  # EU dd-mm-yyyy
     r")\s*$"
 )
 
 # Tried in order when casting the first column to a Polars Date/Datetime type.
 _DATE_FORMATS: list[tuple[type, str]] = [
-    (pl.Date,     "%Y-%m-%d"),
+    (pl.Date, "%Y-%m-%d"),
     (pl.Datetime, "%Y-%m-%dT%H:%M:%S"),
     (pl.Datetime, "%Y-%m-%d %H:%M:%S"),
     (pl.Datetime, "%Y-%m-%dT%H:%M"),
     (pl.Datetime, "%Y-%m-%d %H:%M"),
-    (pl.Date,     "%m/%d/%Y"),
-    (pl.Date,     "%d/%m/%Y"),
-    (pl.Date,     "%d.%m.%Y"),
-    (pl.Date,     "%d-%m-%Y"),
+    (pl.Date, "%m/%d/%Y"),
+    (pl.Date, "%d/%m/%Y"),
+    (pl.Date, "%d.%m.%Y"),
+    (pl.Date, "%d-%m-%Y"),
 ]
 
 
@@ -265,7 +265,9 @@ def extract_dataframe_from_messages(messages) -> pl.DataFrame | None:
     return None
 
 
-async def fetch_dataframe_for_answer(client, answer: str, messages) -> pl.DataFrame | None:
+async def fetch_dataframe_for_answer(
+    client, answer: str, messages
+) -> pl.DataFrame | None:
     """Build a dataframe from tool messages, a markdown table, or SQL in the answer.
 
     Priority:
@@ -328,13 +330,19 @@ class LlmWorker(QObject):
             _MCTX_RE,
             handle_bond_command,
             handle_calc_command,
+            handle_dlv_command,
+            handle_fut_command,
             handle_mctx_command,
             handle_runtime_toggle_commands,
         )
         from cheapquant_fi.cli_tools import (
             check_market_context,
+            execute_dlv_command,
+            execute_fut_command,
             execute_parsed_calc,
             format_calc_result,
+            format_dlv_result,
+            format_fut_result,
             get_bond,
             parse_calc_command,
         )
@@ -359,6 +367,16 @@ class LlmWorker(QObject):
         calc_help = handle_calc_command(text)
         if calc_help is not None:
             self.finished.emit(calc_help, None)
+            return
+
+        dlv_help = handle_dlv_command(text)
+        if dlv_help is not None:
+            self.finished.emit(dlv_help, None)
+            return
+
+        fut_help = handle_fut_command(text)
+        if fut_help is not None:
+            self.finished.emit(fut_help, None)
             return
 
         # Check for bare mention shortcut: @id
@@ -413,6 +431,24 @@ class LlmWorker(QObject):
             self.finished.emit(answer, None)
             return
 
+        # Bond future commands emit their table as a DataFrame so the table
+        # widget renders it natively rather than as preformatted text.
+        for execute, render in (
+            (execute_dlv_command, format_dlv_result),
+            (execute_fut_command, format_fut_result),
+        ):
+            try:
+                result = execute(text)
+            except Exception as exc:
+                self.finished.emit(f"Bond future error: {exc}", None)
+                return
+            if result is not None:
+                if result.get("status") == "success":
+                    self.finished.emit(result["message"], result["dataframe"])
+                else:
+                    self.finished.emit(render(result), None)
+                return
+
         from mcp_data.client._tracing import disable_langsmith_tracing
 
         disable_langsmith_tracing(force=True)
@@ -434,7 +470,9 @@ class LlmWorker(QObject):
 
         rewritten, unresolved = resolve_bond_mentions(query)
         if unresolved:
-            print(f"Warning: could not resolve bond mentions: {', '.join(f'@{id}' for id in unresolved)}")
+            print(
+                f"Warning: could not resolve bond mentions: {', '.join(f'@{id}' for id in unresolved)}"
+            )
 
         routed = route_query(self._app_settings, rewritten)
         if routed is None:
@@ -448,7 +486,9 @@ class LlmWorker(QObject):
         settings = mcp_settings_for(self._app_settings, routed.target)
         async with DBClient(settings) as client:
             profile = await client.describe_dataset()
-            profile_prompt = profile.get("prompt") if isinstance(profile, dict) else None
+            profile_prompt = (
+                profile.get("prompt") if isinstance(profile, dict) else None
+            )
             agent = SQLAgent(
                 client, profile_prompt=profile_prompt, extra_tools=EXTRA_TOOLS
             )
@@ -474,9 +514,7 @@ class ChatDialog(QMainWindow):
 
         self.setWindowTitle("CheapQuant Fixed Income")
         self.resize(1100, 984)
-        self.setWindowFlags(
-            self.windowFlags() | Qt.WindowType.FramelessWindowHint
-        )
+        self.setWindowFlags(self.windowFlags() | Qt.WindowType.FramelessWindowHint)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
 
         outer = QWidget()
@@ -716,9 +754,13 @@ class ChatDialog(QMainWindow):
         self._chat_log.append(f"**Assistant** · {timestamp}\n\n{text}")
         self._refresh_chat_view()
 
-    def _append_chat_block(self, speaker: str, text: str, *, muted: bool = False) -> None:
+    def _append_chat_block(
+        self, speaker: str, text: str, *, muted: bool = False
+    ) -> None:
         timestamp = datetime.now().strftime("%H:%M")
-        prefix = f"*{speaker}* · {timestamp}" if muted else f"**{speaker}** · {timestamp}"
+        prefix = (
+            f"*{speaker}* · {timestamp}" if muted else f"**{speaker}** · {timestamp}"
+        )
         self._chat_log.append(f"{prefix}\n\n{text}")
         self._refresh_chat_view()
 
@@ -764,7 +806,7 @@ class ChatDialog(QMainWindow):
 
         # Convert to pandas for easier cell access
         df_pd = df.to_pandas()
-        
+
         self._table.setRowCount(len(df_pd))
         self._table.setColumnCount(len(df_pd.columns))
         self._table.setHorizontalHeaderLabels([str(c) for c in df_pd.columns])
@@ -791,7 +833,9 @@ class ChatDialog(QMainWindow):
             self._plot.clear_plot()
             return
 
-        df_pd, y_cols, has_multiple_series = process_df_for_ggplot(df.to_pandas(), x_col)
+        df_pd, y_cols, has_multiple_series = process_df_for_ggplot(
+            df.to_pandas(), x_col
+        )
         plot_settings = self._settings.get("plot_settings", {})
 
         plot = create_ggplot_from_df(

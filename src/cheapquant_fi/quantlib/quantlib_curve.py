@@ -9,6 +9,7 @@ from enum import Enum
 import QuantLib as ql
 import polars as pl
 
+from cheapquant_fi.date_utils import to_ql_date as _to_ql_date
 from cheapquant_fi.issuers import IssuerProfile, RateType
 
 
@@ -178,10 +179,6 @@ def _ql_auto_bspline_knots(tenor_years: list[float]) -> list[float]:
     interior = [0.0] + sorted(tenor_years)
     post = [t_max * 4 / 3, t_max * 5 / 3]
     return pre + interior + post
-
-
-def _to_ql_date(value: date) -> ql.Date:
-    return ql.Date(value.day, value.month, value.year)
 
 
 def _ql_pillar_dates(

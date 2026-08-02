@@ -164,7 +164,10 @@ results_sonnet5 = [await runner_sonnet5.run_scenario(s) for s in scenarios]
 Each `TurnResult` includes:
 - **`answer`** — final prose response from the agent
 - **`tool_calls`** — list of `ToolCallRecord`s showing which tools were invoked and their results
-- **`token_usage`** — dict with `input_tokens`, `output_tokens` (if model provides it)
+- **`token_usage`** — flat `dict[str, int]` with `input_tokens`, `output_tokens` (if the
+  model provides them). LangChain's nested `input_token_details` /
+  `output_token_details` breakdowns are flattened to entries such as
+  `input_token_cache_read`, so the mapping is always scalar counts.
 - **`latency_ms`** — wall-clock time for this turn
 - **`criteria_results`** — list of `CriterionResult`s; `passed` is True if all are True
 

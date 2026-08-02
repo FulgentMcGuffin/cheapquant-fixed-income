@@ -9,6 +9,10 @@ from datetime import date, datetime, timedelta
 
 import QuantLib as ql
 
+from cheapquant_fi.date_utils import (
+    from_ql_date as _from_ql_date,
+    to_ql_date as _to_ql_date,
+)
 from cheapquant_fi.issuers import ISSUERS, IssuerProfile
 
 _TENOR_TOKEN = re.compile(r"(\d+)(``|`|[^0-9\s])")
@@ -22,14 +26,6 @@ _UNIT_FIELDS: dict[str, str] = {
     "`": "minutes",
     "``": "seconds",
 }
-
-
-def _to_ql_date(value: date) -> ql.Date:
-    return ql.Date(value.day, value.month, value.year)
-
-
-def _from_ql_date(value: ql.Date) -> date:
-    return date(value.year(), value.month(), value.dayOfMonth())
 
 
 @dataclass(frozen=True)
