@@ -42,6 +42,7 @@ MANIFEST
 .cursor/
 
 .mex/
+*mex_warnings.txt
 
 
 # PyInstaller
