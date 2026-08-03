@@ -11,6 +11,9 @@ __pycache__/
 # C extensions
 *.so
 
+# Mex
+.mex/
+
 # Distribution / packaging
 .Python
 build/
@@ -29,6 +32,7 @@ share/python-wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+
 MANIFEST
 **/.vscode/
 .vscode/
@@ -36,6 +40,8 @@ MANIFEST
 .idea/
 **/.idea
 .cursor/
+
+.mex/
 
 
 # PyInstaller
