@@ -16,6 +16,7 @@ from cqfi.analytics_output import FixedIncomeAnalyticsOutput
 from cqfi.bond_future_input import BondFutureInput
 from cqfi.bond_future_output import BondFutureBasketOutput
 from cqfi.bond_futures import BOND_FUTURE_CONVENTIONS, BondFuture, BondFutureConvention
+from cqfi.issuers import ISSUERS
 
 # Tables materialised from semantics YAML (session analytics, not framecache blobs).
 _ANALYTICS_TABLES = (
@@ -25,13 +26,15 @@ _ANALYTICS_TABLES = (
     "bond_future_outputs",
 )
 _CONVENTION_TABLE = "bond_future_conventions"
-_CACHE_REGISTRY_TABLES = _ANALYTICS_TABLES + (_CONVENTION_TABLE,)
+_METADATA_TABLES = ("issuers", _CONVENTION_TABLE)
+_CACHE_REGISTRY_TABLES = _ANALYTICS_TABLES + _METADATA_TABLES
 _TABLE_PRIMARY_KEYS: dict[str, str] = {
     "cmt_analytics": "cmt_analytic_id",
     "bond_analytics": "analytic_id",
     "bond_future_basket_outputs": "basket_output_id",
     "bond_future_outputs": "future_output_id",
     _CONVENTION_TABLE: "convention_id",
+    "issuers": "issuer_code",
 }
 _ID_HEX_LEN = 12  # short UUID fragment
 _SEP = "-"
@@ -137,6 +140,9 @@ class CacheRegistry:
             )
         if not self._duckdb:
             conn.commit()
+        # Materialize metadata tables
+        self._materialize_issuers_table()
+        self._materialize_bond_futures_conventions_table()
 
     def _insert_row(self, table: str, row: dict[str, Any]) -> None:
         """Insert only non-None values that exist as table columns."""
@@ -155,6 +161,109 @@ class CacheRegistry:
         else:
             conn.execute(sql, values)
             conn.commit()
+
+    def _materialize_issuers_table(self) -> None:
+        """Materialize ISSUERS dict into the issuers table."""
+        table = "issuers"
+        if table not in self._table_columns:
+            return  # Table not defined in semantics
+        
+        import QuantLib as ql
+        
+        conn = self._conn()
+        # Clear existing data
+        conn.execute(f'DELETE FROM "{table}"')
+        
+        for issuer_code, profile in ISSUERS.items():
+            # Serialize QuantLib objects to strings
+            calendar_name = profile.calendar().__class__.__name__
+            if calendar_name == "NullCalendar":
+                calendar_name = "NullCalendar"
+            
+            day_count_name = profile.day_count.name()
+            
+            # Convert frequency int to string
+            freq_map = {
+                ql.NoFrequency: "NoFrequency",
+                ql.Once: "Once",
+                ql.Annual: "Annual",
+                ql.Semiannual: "Semiannual",
+                ql.Quarterly: "Quarterly",
+                ql.Monthly: "Monthly",
+                ql.Weekly: "Weekly",
+                ql.Daily: "Daily",
+                ql.EveryFourthWeek: "EveryFourthWeek",
+                ql.EveryFourthMonth: "EveryFourthMonth",
+            }
+            frequency_str = freq_map.get(profile.frequency, str(profile.frequency))
+            
+            # Repo day count if available
+            repo_day_count_name = None
+            if profile.repo_day_count is not None:
+                repo_day_count_name = profile.repo_day_count.name()
+            
+            row = {
+                "issuer_code": issuer_code,
+                "name": profile.name,
+                "currency": profile.currency,
+                "calendar_name": calendar_name,
+                "day_count_type": day_count_name,
+                "settlement_days": profile.settlement_days,
+                "coupon_frequency": frequency_str,
+                "repo_day_count_type": repo_day_count_name,
+                "repo_settlement_days": profile.repo_settlement_days,
+            }
+            self._insert_row(table, row)
+
+    def _materialize_bond_futures_conventions_table(self) -> None:
+        """Materialize BOND_FUTURE_CONVENTIONS into the bond_future_conventions table."""
+        table = "bond_future_conventions"
+        if table not in self._table_columns:
+            return  # Table not defined in semantics
+        
+        conn = self._conn()
+        # Clear existing data
+        conn.execute(f'DELETE FROM "{table}"')
+        
+        for convention in BOND_FUTURE_CONVENTIONS.values():
+            maturity_range = None
+            original_term_range = None
+            if convention.restrictions is not None:
+                maturity_range = convention.restrictions.remaining_maturity
+                original_term_range = convention.restrictions.original_term
+            
+            min_maturity = None
+            max_maturity = None
+            if maturity_range:
+                if maturity_range.min_months is not None:
+                    min_maturity = maturity_range.min_months / 12.0
+                if maturity_range.max_months is not None:
+                    max_maturity = maturity_range.max_months / 12.0
+            
+            original_term_str = None
+            if original_term_range:
+                parts = []
+                if original_term_range.min_months is not None:
+                    parts.append(f"{original_term_range.min_months / 12.0:.1f}")
+                if original_term_range.max_months is not None:
+                    parts.append(f"{original_term_range.max_months / 12.0:.1f}")
+                if parts:
+                    original_term_str = " to ".join(parts)
+            
+            row = {
+                "convention_id": convention.name,
+                "exchange": convention.exchange,
+                "underlying_issuer": convention.issuer_code,
+                "full_name": convention.name,
+                "notional_maturity_years": convention.notional_maturity_years,
+                "notional_coupon": convention.notional_coupon,
+                "min_maturity_years": min_maturity,
+                "max_maturity_years": max_maturity,
+                "original_term_years": original_term_str,
+                "conversion_factor_method": convention.conversion_factor_method.value,
+                "contract_size": convention.contract_size,
+            }
+            self._insert_row(table, row)
 
     def persist_bond_compute(
         self,

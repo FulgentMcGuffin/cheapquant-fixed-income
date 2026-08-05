@@ -232,6 +232,40 @@ tables:
       created_at: {type: TEXT, description: "When the entry was written."}
       expires_at: {type: TEXT, description: "Expiry timestamp or NULL."}
 
+  issuers:
+    description: >
+      QuantLib calendar and market conventions for 19 sovereign issuers. 
+      One row per country. Use to look up conventions (day-count, coupon 
+      frequency, settlement days) for a given issuer.
+    columns:
+      issuer_code: {type: TEXT, description: "ISO 3-letter code (USA, DEU, GBR, JPN, etc.)"}
+      name: {type: TEXT, description: "Full country name (e.g. United States, Germany, Japan)"}
+      currency: {type: TEXT, description: "Currency code (USD, EUR, GBP, JPY, etc.)"}
+      calendar_name: {type: TEXT, description: "Holiday calendar class name (USA, TARGET, London, Japan, etc.)"}
+      day_count_type: {type: TEXT, description: "Accrual day-count convention (e.g. Actual/Actual(ISDA), Actual/360, Actual/365(Fixed))"}
+      settlement_days: {type: INTEGER, description: "Business days to settlement (typically 1 or 3)"}
+      coupon_frequency: {type: TEXT, description: "Coupon payment frequency (Semiannual, Annual, Quarterly, etc.)"}
+      repo_day_count_type: {type: TEXT, description: "Repo financing day-count convention, if different from bond accrual"}
+      repo_settlement_days: {type: INTEGER, description: "Repo settlement days, if different from bond settlement"}
+
+  bond_future_conventions:
+    description: >
+      Exchange-traded government bond futures (CME, Eurex, ICE, OSE). 
+      Defines contract specs: maturity/term limits, conversion factors, 
+      delivery calendars, basket rules. One row per contract.
+    columns:
+      convention_id: {type: TEXT, description: "Canonical contract code (ZT, FGBL, FBTP, IK, FJG5, etc.)"}
+      exchange: {type: TEXT, description: "Exchange: CME, EUREX, ICE, or OSE (Osaka)"}
+      underlying_issuer: {type: TEXT, description: "Underlying sovereign issuer code (USA, DEU, GBR, JPN, ITA, etc.)"}
+      full_name: {type: TEXT, description: "Full contract name"}
+      notional_maturity_years: {type: REAL, description: "Notional maturity of the contract in years (e.g. 2, 5, 10, 30)"}
+      notional_coupon: {type: REAL, description: "Notional coupon percentage for conversion factor (e.g. 6.0 for JGB)"}
+      min_maturity_years: {type: REAL, description: "Minimum remaining maturity for delivery-eligible bonds, in years"}
+      max_maturity_years: {type: REAL, description: "Maximum remaining maturity for delivery-eligible bonds, in years"}
+      original_term_years: {type: TEXT, description: "Allowed original issue terms range (e.g. '2.0 to 3.0', '6.5 to 10.0')"}
+      conversion_factor_method: {type: TEXT, description: "CF formula: CME, EUREX, ICE, or JGB"}
+      contract_size: {type: REAL, description: "Contract notional size (face value, e.g. 100000 or 200000)"}
+
 examples:
   - q: "What 10Y CMT clean prices did we compute for US Treasuries?"
     sql: >
@@ -255,3 +289,24 @@ examples:
       FROM bond_analytics
       WHERE issuer = 'FRA' AND CAST((julianday(maturity_date) - julianday(CURRENT_DATE)) / 365.25 AS INTEGER) BETWEEN 9 AND 11
       AND trade_date = (SELECT MAX(trade_date) FROM bond_analytics WHERE issuer = 'FRA');
+  - q: "Which issuers use Actual/Actual day-count?"
+    sql: >
+      SELECT issuer_code, name, day_count_type, settlement_days
+      FROM issuers
+      WHERE day_count_type LIKE '%Actual/Actual%'
+  - q: "What are the maturity rules for the US 10Y futures (ZN)?"
+    sql: >
+      SELECT convention_id, notional_maturity_years, min_maturity_years, max_maturity_years, original_term_years
+      FROM bond_future_conventions
+      WHERE convention_id = 'ZN'
+  - q: "How many issuers settle in 1 day vs 3 days?"
+    sql: >
+      SELECT settlement_days, COUNT(*) as count
+      FROM issuers
+      GROUP BY settlement_days
+  - q: "List all Eurex bond futures contracts"
+    sql: >
+      SELECT convention_id, underlying_issuer, notional_maturity_years, conversion_factor_method
+      FROM bond_future_conventions
+      WHERE exchange = 'EUREX'
+      ORDER BY underlying_issuer, notional_maturity_years
