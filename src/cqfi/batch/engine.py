@@ -112,11 +112,16 @@ class BatchEngine:
                 while pending:
                     if stop_event is not None and stop_event.is_set():
                         cancelled = True
-                        # Drain all remaining futures: process results and don't submit new work.
-                        # We want to persist and emit events for all in-flight work, so we wait
-                        # for all remaining futures to complete rather than abandoning them.
-                        while pending:
-                            done, pending = wait(pending, timeout=0.5)
+                        # All futures were submitted upfront, so most of
+                        # ``pending`` is likely still sitting in the executor's
+                        # internal queue rather than actually running.
+                        # future.cancel() succeeds for those (they never start,
+                        # never get a result) and fails (returns False) for
+                        # ones a worker has already picked up — those we still
+                        # have to wait for since we can't interrupt them mid-run.
+                        still_running = {f for f in pending if not f.cancel()}
+                        while still_running:
+                            done, still_running = wait(still_running, timeout=0.5)
                             for future in done:
                                 completed = self._handle_result(
                                     future, future_to_item[future], registry,

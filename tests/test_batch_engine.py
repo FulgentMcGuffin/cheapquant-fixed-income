@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import functools
 import sqlite3
 import threading
+import time
 from concurrent.futures import Future
 from datetime import date
 from pathlib import Path
@@ -56,6 +58,25 @@ def _fake_compute_batch(
             BondCellPayload(bond_key=key, success=True, request=request, bond_metrics=metrics)
         )
     return results
+
+
+def _slow_compute_batch_marked(
+    marker_path: str,
+    issuer_code: str,
+    trade_date: date,
+    bond_rows: list[dict],
+    curve_label: str,
+) -> list[BondCellPayload]:
+    """Stand-in compute_fn: touches a marker file the instant it starts, then
+    sleeps briefly before completing normally.
+
+    Lets a test wait (by polling the marker) for a batch to genuinely be
+    executing inside a worker process before flipping ``stop_event`` —
+    deterministic, unlike guessing at a sleep duration.
+    """
+    Path(marker_path).write_text("started", encoding="utf-8")
+    time.sleep(1.0)
+    return _fake_compute_batch(issuer_code, trade_date, bond_rows, curve_label)
 
 
 def _bond(bond_id: str, maturity: date) -> Bond:
@@ -228,6 +249,70 @@ def test_run_stopped_before_dispatch_cancels_everything(tmp_path: Path):
     done = events[-1]
     assert isinstance(done, BatchDone)
     assert done.cancelled is True
+
+
+def test_run_stopped_mid_flight_cancels_still_queued_work(tmp_path: Path):
+    """Stop mid-run must not degenerate into running the whole plan to completion.
+
+    All work items are submitted to the executor upfront (see engine.py), so
+    a naive "wait for everything in ``pending``" drain on stop would silently
+    let the entire batch finish. With ``workers=1`` and several work items,
+    only the one item a worker has already picked up should be allowed to
+    finish; the rest must be cancelled before they ever run.
+    """
+    settings = _settings(tmp_path)
+    trade_date = date(2020, 1, 2)
+    marker = tmp_path / "started.marker"
+
+    total_items = 6
+    work_items = tuple(
+        WorkItem(issuer="FRA", trade_date=trade_date, bonds=(_bond(f"OK{i}", date(2029, 1, 1)),))
+        for i in range(total_items)
+    )
+    plan = BatchPlan(
+        issuer_plans=(
+            IssuerPlan(
+                issuer="FRA",
+                trade_dates=(trade_date,),
+                bonds=tuple(b for wi in work_items for b in wi.bonds),
+                work_items=work_items,
+            ),
+        )
+    )
+
+    stop_event = threading.Event()
+    events = []
+
+    def _stop_once_started() -> None:
+        deadline = time.monotonic() + 10
+        while not marker.exists() and time.monotonic() < deadline:
+            time.sleep(0.02)
+        stop_event.set()
+
+    threading.Thread(target=_stop_once_started, daemon=True).start()
+
+    BatchEngine().run(
+        plan,
+        settings,
+        workers=1,
+        curve_label="BOND_ZERO",
+        on_event=events.append,
+        stop_event=stop_event,
+        compute_fn=functools.partial(_slow_compute_batch_marked, str(marker)),
+        worker_initializer=_noop_initializer,
+    )
+
+    done = events[-1]
+    assert isinstance(done, BatchDone)
+    assert done.cancelled is True
+    assert done.total == total_items
+    # Only the batch(es) a worker had already picked up may complete; the
+    # rest (still queued behind the single worker) must be cancelled outright.
+    # A little slack (ProcessPoolExecutor buffers a couple of extra calls
+    # beyond max_workers) keeps this robust across Python versions.
+    assert done.completed <= 2
+    cell_done = [e for e in events if isinstance(e, CellDone)]
+    assert len(cell_done) == done.completed
 
 
 # ── also_cache: dual write to quant_cache_db (used by the /batch command) ──
