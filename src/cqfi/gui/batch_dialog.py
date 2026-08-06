@@ -507,8 +507,8 @@ class _BaseBatchWindow(QMainWindow):
         self._stop_btn.setEnabled(False)
         self._stop_btn.setText("Stopping…")
         if self._thread is not None:
-            self._thread.stop_event.set()
             self._thread.finished.connect(self._on_thread_finished)
+            self._thread.stop_event.set()
 
     def _on_thread_finished(self) -> None:
         if self._stopping:

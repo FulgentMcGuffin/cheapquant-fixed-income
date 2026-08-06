@@ -106,12 +106,16 @@ class FutureBatchEngine:
                 while pending:
                     if stop_event is not None and stop_event.is_set():
                         cancelled = True
-                        done, pending = wait(pending, timeout=0)
-                        for future in done:
-                            completed = self._handle_result(
-                                future, future_to_item[future], registry,
-                                curve_label, completed, total, on_event, also_cache,
-                            )
+                        # Drain all remaining futures: process results and don't submit new work.
+                        # We want to persist and emit events for all in-flight work, so we wait
+                        # for all remaining futures to complete rather than abandoning them.
+                        while pending:
+                            done, pending = wait(pending, timeout=0.5)
+                            for future in done:
+                                completed = self._handle_result(
+                                    future, future_to_item[future], registry,
+                                    curve_label, completed, total, on_event, also_cache,
+                                )
                         break
                     done, pending = wait(pending, timeout=0.2, return_when=FIRST_COMPLETED)
                     for future in done:
@@ -120,8 +124,7 @@ class FutureBatchEngine:
                             curve_label, completed, total, on_event, also_cache,
                         )
 
-                if cancelled:
-                    executor.shutdown(wait=True, cancel_futures=True)
+                executor.shutdown(wait=True, cancel_futures=True)
         finally:
             registry.close()
 

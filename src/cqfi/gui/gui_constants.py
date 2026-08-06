@@ -643,7 +643,7 @@ QWidget#chatPanel, QFrame#chatPanel, QFrame#panelFrame {{
 QWidget#chatInner {{
     background: transparent;
 }}
-QTextBrowser, QTextBrowser#chatView {{
+QTextBrowser, QTextBrowser#chatView, QPlainTextEdit#chatView {{
     background-color: {t.bg};
     color: {t.text};
     border: 1px solid {t.border};
@@ -804,5 +804,39 @@ QPushButton#smallBtn:pressed {{
 QTextBrowser {{
     font-size: 13px;
     line-height: 1.6;
+}}
+QTabWidget {{
+    background-color: {t.bg};
+    color: {t.text};
+    border: none;
+}}
+QTabWidget::pane {{
+    border: 1px solid {t.border};
+    border-radius: 10px;
+}}
+QTabBar {{
+    background-color: {t.surface};
+    border: none;
+}}
+QTabBar::tab {{
+    background-color: {t.surface};
+    color: {t.text};
+    border: 1px solid {t.border};
+    padding: 6px 12px;
+    margin-right: 2px;
+    border-top-left-radius: 6px;
+    border-top-right-radius: 6px;
+    font-weight: 500;
+    font-size: 12px;
+}}
+QTabBar::tab:selected {{
+    background-color: {t.bg};
+    border: 1px solid {t.border};
+    border-bottom: 2px solid {primary};
+    color: {t.text};
+}}
+QTabBar::tab:hover {{
+    background-color: {t.border};
+    color: {t.text};
 }}
 """
