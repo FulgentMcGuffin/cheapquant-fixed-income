@@ -185,3 +185,18 @@ class Bond:
     def field_names(self) -> tuple[str, ...]:
         """Return dataclass field names in declaration order."""
         return tuple(field.name for field in fields(self))
+
+    def __str__(self) -> str:
+        """Return a concise string representation using case conventions.
+
+        bond_id defaults to UPPERCASE, user_friendly_id to lowercase.
+        """
+        if self.bond_id is not None:
+            return self.bond_id.upper()
+        if self.user_friendly_id is not None:
+            return self.user_friendly_id.lower()
+        return ""
+
+    def __repr__(self) -> str:
+        """Return a detailed JSON representation."""
+        return self.as_json(indent=2)

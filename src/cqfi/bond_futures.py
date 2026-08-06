@@ -341,6 +341,14 @@ class BondFutureConvention(metaclass=HasRulesActions):
         """Return the contract terms as a JSON object string."""
         return json.dumps(self.as_dict(), **kwargs)
 
+    def __str__(self) -> str:
+        """Return the canonical uppercase exchange code."""
+        return self.name.upper()
+
+    def __repr__(self) -> str:
+        """Return a detailed JSON representation."""
+        return self.as_json(indent=2)
+
 
 # --------------------------------------------------------------------------- #
 # Registry construction helpers
@@ -894,10 +902,15 @@ class BondFuture:
         return json.dumps(self.as_dict(), **kwargs)
 
     def __str__(self) -> str:
-        root = self.convention.display_root()
+        """Return the uppercase contract code with delivery month and year.
+
+        Format: ``<CODE><MONTH><YEAR_DIGIT>``, e.g., ``IKU9`` for Sept 2029 Euro-BTP.
+        """
+        root = self.convention.display_root().upper()
         return f"{root}{self.month_code()}{self.delivery_year % 10}"
 
     def __repr__(self) -> str:
+        """Return a detailed JSON representation of the contract."""
         return self.as_json(indent=2)
 
 
