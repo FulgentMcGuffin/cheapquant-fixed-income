@@ -21,6 +21,7 @@ dependencies = [
 [project.scripts]
 cqfi     = "cqfi.agent.cli:main"
 cqfi-gui = "cqfi.gui.app:main"
+batch-bond-analytics = "cqfi.batch.cli:main"
 
 [dependency-groups]
 dev = [

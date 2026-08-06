@@ -36,6 +36,13 @@ from cqfi.agent.planner import (
     RULE_MODE_HINT,
     resolve_query_mode,
 )
+from cqfi.batch.cli import run_future_gui_standalone, run_gui_standalone
+from cqfi.batch.command import (
+    BatchCommandResult,
+    build_batch_launch_request,
+    build_future_batch_launch_request,
+    parse_batch_command,
+)
 from cqfi.cache.manager import CacheManager
 from cqfi.cli_tools import (
     build_delivery_basket,
@@ -160,6 +167,16 @@ HELP_TEXT_CQFI = (
     "              /fut IKH7 2026-05-15 3.0\n"
     '              /fut IKH7 2026-05-15 {"3m": 3.0, "1y": 3.2}\n'
     '    Also available in LLM mode: "What is the CTD for the March 2027 BTP future?"\n'
+    "\n"
+    "Batch analytics commands:\n"
+    "  /batch <issuer> <start> <end>  — compute analytics for every active bond of\n"
+    "                                    one issuer across a trade-date range, in a\n"
+    "                                    separate progress window\n"
+    "    issuer: one issuer code or alias (single issuer only)\n"
+    "    start, end: YYYY-MM-DD, inclusive\n"
+    "    Always writes to bond_analytics_db; also writes to quant_cache_db when\n"
+    "    /cache is on (see /cache).\n"
+    "    Examples: /batch FRA 2020-01-01 2020-12-31\n"
     "\n"
     "Session commands:\n"
     "  save [session_id]   — persist active cache to data/sessions/\n"
@@ -356,6 +373,43 @@ _FUT_HELP_TEXT = (
     '  /fut IKH7 2026-05-15 {"3m": 3.0, "1y": 3.2}   — valued with a full repo curve\n'
 )
 
+_BATCH_HELP_TEXT = (
+    "Batch Analytics\n"
+    "===============\n"
+    "\n"
+    "The /batch command computes analytics in parallel and shows progress in\n"
+    "a separate window (one heatmap per issuer or future code). Results\n"
+    "always go straight to bond_analytics_db. When /cache is on for this\n"
+    "session, results are also written to quant_cache_db (use /cache to\n"
+    "check or change that setting).\n"
+    "\n"
+    "Bond form: /batch <issuer> <start> <end>\n"
+    "  Computes analytics for every active bond of one issuer across a\n"
+    "  trade-date range. A bond counts as active on a trade date when it was\n"
+    "  already issued and has not yet matured by that date's settlement date.\n"
+    "  <issuer>: one issuer code or alias (single issuer per run)\n"
+    "  <start>, <end>: YYYY-MM-DD, inclusive\n"
+    "\n"
+    "Bond-future form: /batch <future_code> <delivery> <start> <end>\n"
+    "  Computes basis analytics for one future's delivery baskets, one dated\n"
+    "  contract per delivery-month letter x per calendar year spanned by\n"
+    "  <start>/<end>. A contract counts as valid on a trade date up to and\n"
+    "  including its own delivery date.\n"
+    "  <future_code>: one bond future code (single contract series per run)\n"
+    "  <delivery>: delivery month letters from FGHJKMNQUVXZ, e.g. HMUZ for\n"
+    "              all four quarterly months\n"
+    "  <start>, <end>: YYYY-MM-DD, inclusive\n"
+    "\n"
+    "Examples:\n"
+    "  /batch FRA 2020-01-01 2020-12-31          — all of 2020 for France\n"
+    "  /batch usa 2024-01-01 2024-01-31          — January 2024 for the US\n"
+    "  /batch FGBM HMUZ 2020-01-01 2020-12-31    — all 2020 Euro-Bobl quarterlies\n"
+    "  /batch IK H 2027-01-01 2027-12-31         — just the March 2027 Euro-BTP\n"
+    "\n"
+    "For a config-driven, multi-issuer/multi-future run outside the app, use\n"
+    "batch_bond_analytics.py directly (see its --help).\n"
+)
+
 
 def _ensure_utf8_stdout() -> None:
     for stream in (sys.stdout, sys.stderr):
@@ -547,6 +601,83 @@ def handle_fut_command(text: str) -> str | None:
     return None
 
 
+def handle_batch_command(text: str) -> str | None:
+    """Return /batch help or invalid-usage text; None if not a /batch command."""
+    stripped = text.strip()
+    parsed = parse_batch_command(stripped)
+    if parsed is None:
+        return None
+    if parsed.kind == "help":
+        return _BATCH_HELP_TEXT
+    if parsed.kind == "invalid":
+        return (
+            "Invalid /batch command. Use /batch <issuer> <start> <end> or "
+            "/batch <future_code> <delivery> <start> <end>, e.g. "
+            "/batch FRA 2020-01-01 2020-12-31 or "
+            "/batch FGBM HMUZ 2020-01-01 2020-12-31.\n\n"
+            f"{_BATCH_HELP_TEXT}"
+        )
+    return None
+
+
+def execute_batch_command(parsed: BatchCommandResult) -> str:
+    """Build the plan and launch the batch progress window for a validated /batch command.
+
+    Uses the session's already-loaded config (no --config here) and its live
+    /cache setting to decide whether to also write to quant_cache_db. Blocks
+    until the window is closed — there is no running Qt event loop to hand
+    the window off to in the plain console REPL, so this is the same
+    trade-off the standalone script makes.
+    """
+    if parsed.mode == "future":
+        return _execute_future_batch_command(parsed)
+    return _execute_bond_batch_command(parsed)
+
+
+def _execute_bond_batch_command(parsed: BatchCommandResult) -> str:
+    request = build_batch_launch_request(parsed)
+    if request.plan.total_cells == 0:
+        return (
+            f"No active bonds found for {parsed.issuer} between "
+            f"{parsed.start.isoformat()} and {parsed.end.isoformat()}; nothing to compute."
+        )
+    print(
+        f"Launching batch analytics window — {request.plan.total_cells} cells "
+        f"({request.args_summary})..."
+    )
+    run_gui_standalone(
+        request.plan,
+        request.settings,
+        workers=request.workers,
+        curve_label=request.curve_label,
+        args_summary=request.args_summary,
+        also_cache=request.also_cache,
+    )
+    return "Batch analytics window closed."
+
+
+def _execute_future_batch_command(parsed: BatchCommandResult) -> str:
+    request = build_future_batch_launch_request(parsed)
+    if request.plan.total_cells == 0:
+        return (
+            f"No contracts overlap {parsed.future_code} {parsed.delivery} between "
+            f"{parsed.start.isoformat()} and {parsed.end.isoformat()}; nothing to compute."
+        )
+    print(
+        f"Launching batch analytics window — {request.plan.total_cells} cells "
+        f"({request.args_summary})..."
+    )
+    run_future_gui_standalone(
+        request.plan,
+        request.settings,
+        workers=request.workers,
+        curve_label=request.curve_label,
+        args_summary=request.args_summary,
+        also_cache=request.also_cache,
+    )
+    return "Batch analytics window closed."
+
+
 def route_query(app: AppSettings, text: str) -> RoutedQuery | None:
     """Parse an explicit `<dataset>:` prefix or infer the dataset from keywords."""
     lowered = text.strip().lower()
@@ -709,6 +840,11 @@ async def _query_dataset(
         print(fut_help)
         return
 
+    batch_help = handle_batch_command(text)
+    if batch_help is not None:
+        print(batch_help)
+        return
+
     # Check for slash commands before routing to planner
     bond_match = _BOND_RE.match(text.strip())
     if bond_match:
@@ -753,6 +889,14 @@ async def _query_dataset(
         return
 
     if _handle_bond_future_commands(text.strip()):
+        return
+
+    batch_parsed = parse_batch_command(text.strip())
+    if batch_parsed is not None and batch_parsed.kind == "run":
+        try:
+            print(execute_batch_command(batch_parsed))
+        except Exception as exc:
+            print(f"Batch error: {exc}")
         return
 
     use_agent, use_single_shot = resolve_query_mode(
@@ -830,6 +974,11 @@ def _handle_local_command(
     fut_help = handle_fut_command(text)
     if fut_help is not None:
         print(fut_help)
+        return True
+
+    batch_help = handle_batch_command(text)
+    if batch_help is not None:
+        print(batch_help)
         return True
 
     if lowered in ("help", "?"):
@@ -934,6 +1083,14 @@ def _handle_local_command(
             print(format_calc_result(result))
         except Exception as exc:
             print(f"Analytics error: {exc}")
+        return True
+
+    batch_parsed = parse_batch_command(text.strip())
+    if batch_parsed is not None and batch_parsed.kind == "run":
+        try:
+            print(execute_batch_command(batch_parsed))
+        except Exception as exc:
+            print(f"Batch error: {exc}")
         return True
 
     return _handle_bond_future_commands(text.strip())

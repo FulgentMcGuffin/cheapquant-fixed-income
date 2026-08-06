@@ -7,7 +7,7 @@ import sqlite3
 import uuid
 from datetime import date, datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import yaml
 
@@ -140,9 +140,22 @@ class CacheRegistry:
             )
         if not self._duckdb:
             conn.commit()
-        # Materialize metadata tables
-        self._materialize_issuers_table()
-        self._materialize_bond_futures_conventions_table()
+        # Materialize metadata tables. Best-effort: a registry opened against a
+        # *different* semantics profile than the one that originally created
+        # these tables (e.g. bond_analytics_db opened with quant_cache
+        # semantics, as session_finalize._merge_analytics and batch.engine do)
+        # can find a physical table whose columns don't match this profile's
+        # declared shape. That mismatch must not block bond_analytics/
+        # cmt_analytics reads/writes, which is all such callers actually need.
+        self._materialize_best_effort(self._materialize_issuers_table)
+        self._materialize_best_effort(self._materialize_bond_futures_conventions_table)
+
+    def _materialize_best_effort(self, materialize: Callable[[], None]) -> None:
+        try:
+            materialize()
+        except Exception:
+            if not self._duckdb:
+                self._conn().rollback()
 
     def _insert_row(self, table: str, row: dict[str, Any]) -> None:
         """Insert only non-None values that exist as table columns."""

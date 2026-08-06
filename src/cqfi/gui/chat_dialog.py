@@ -307,15 +307,20 @@ class LlmWorker(QObject):
     """Runs mcp_data LLM agent queries on a background thread.
 
     Routes each query to the correct dataset (input / cache / bond_analytics /
-    ...) the same way the CLI does, and intercepts literal ``/bond`` and
-    ``/mctx`` slash commands before any LLM/MCP round trip -- mirroring
-    ``cqfi.agent.cli``'s ``_handle_local_command`` /
+    ...) the same way the CLI does, and intercepts literal ``/bond``,
+    ``/mctx``, ``/batch``, etc. slash commands before any LLM/MCP round trip
+    -- mirroring ``cqfi.agent.cli``'s ``_handle_local_command`` /
     ``_query_dataset`` behavior so the GUI and CLI stay in parity.
+    ``/batch`` is the one command that can't finish on this thread: it emits
+    ``batch_ready`` so ``ChatDialog`` can open the progress window on the GUI
+    thread instead (Qt widgets may only be created there).
     """
 
     query_requested = Signal(str)
     finished = Signal(str, object)
     error = Signal(str)
+    batch_ready = Signal(object)  # BatchLaunchRequest — must be shown on the GUI thread
+    future_batch_ready = Signal(object)  # FutureBatchLaunchRequest — ditto
 
     def __init__(self, app_settings) -> None:
         super().__init__()
@@ -328,12 +333,18 @@ class LlmWorker(QObject):
             _BARE_MENTION_RE,
             _BOND_RE,
             _MCTX_RE,
+            handle_batch_command,
             handle_bond_command,
             handle_calc_command,
             handle_dlv_command,
             handle_fut_command,
             handle_mctx_command,
             handle_runtime_toggle_commands,
+        )
+        from cqfi.batch.command import (
+            build_batch_launch_request,
+            build_future_batch_launch_request,
+            parse_batch_command,
         )
         from cqfi.cli_tools import (
             check_market_context,
@@ -377,6 +388,58 @@ class LlmWorker(QObject):
         fut_help = handle_fut_command(text)
         if fut_help is not None:
             self.finished.emit(fut_help, None)
+            return
+
+        batch_help = handle_batch_command(text)
+        if batch_help is not None:
+            self.finished.emit(batch_help, None)
+            return
+
+        batch_parsed = parse_batch_command(text)
+        if batch_parsed is not None and batch_parsed.kind == "run" and batch_parsed.mode == "bond":
+            try:
+                request = build_batch_launch_request(batch_parsed)
+            except Exception as exc:
+                self.finished.emit(f"Batch error: {exc}", None)
+                return
+            if request.plan.total_cells == 0:
+                self.finished.emit(
+                    f"No active bonds found for {batch_parsed.issuer} between "
+                    f"{batch_parsed.start.isoformat()} and {batch_parsed.end.isoformat()}; "
+                    "nothing to compute.",
+                    None,
+                )
+                return
+            # Window creation must happen on the GUI thread; ChatDialog does
+            # that in response to this signal (see _on_batch_ready).
+            self.batch_ready.emit(request)
+            self.finished.emit(
+                f"Batch analytics launched in a separate window — "
+                f"{request.plan.total_cells} cells ({request.args_summary}).",
+                None,
+            )
+            return
+
+        if batch_parsed is not None and batch_parsed.kind == "run" and batch_parsed.mode == "future":
+            try:
+                future_request = build_future_batch_launch_request(batch_parsed)
+            except Exception as exc:
+                self.finished.emit(f"Batch error: {exc}", None)
+                return
+            if future_request.plan.total_cells == 0:
+                self.finished.emit(
+                    f"No contracts overlap {batch_parsed.future_code} {batch_parsed.delivery} "
+                    f"between {batch_parsed.start.isoformat()} and "
+                    f"{batch_parsed.end.isoformat()}; nothing to compute.",
+                    None,
+                )
+                return
+            self.future_batch_ready.emit(future_request)
+            self.finished.emit(
+                f"Batch analytics launched in a separate window — "
+                f"{future_request.plan.total_cells} cells ({future_request.args_summary}).",
+                None,
+            )
             return
 
         # Check for bare mention shortcut: @id
@@ -654,11 +717,15 @@ class ChatDialog(QMainWindow):
             "Connected to the MCP Data LLM agent. Ask a question in natural language."
         )
 
+        self._batch_windows: list = []
+
         self._worker_thread = QThread(self)
         self._llm_worker = LlmWorker(self._app_settings)
         self._llm_worker.moveToThread(self._worker_thread)
         self._llm_worker.finished.connect(self._on_llm_response)
         self._llm_worker.error.connect(self._on_llm_error)
+        self._llm_worker.batch_ready.connect(self._on_batch_ready)
+        self._llm_worker.future_batch_ready.connect(self._on_future_batch_ready)
         self._worker_thread.start()
 
         self._resize_helper = FramelessResizeHelper(self)
@@ -668,6 +735,40 @@ class ChatDialog(QMainWindow):
         if self._resize_helper.handle_event_filter(watched, event):
             return True
         return super().eventFilter(watched, event)
+
+    def _on_batch_ready(self, request) -> None:
+        """Open the batch progress window (must run on the GUI thread)."""
+        from batch_dialog import BatchAnalyticsWindow  # gui/ bare import
+
+        window = BatchAnalyticsWindow(
+            plan=request.plan,
+            settings=request.settings,
+            workers=request.workers,
+            curve_label=request.curve_label,
+            args_summary=request.args_summary,
+            also_cache=request.also_cache,
+            parent=self,
+        )
+        self._batch_windows.append(window)
+        window.show()
+        window.start()
+
+    def _on_future_batch_ready(self, request) -> None:
+        """Open the bond-future batch progress window (must run on the GUI thread)."""
+        from batch_dialog import FutureBatchAnalyticsWindow  # gui/ bare import
+
+        window = FutureBatchAnalyticsWindow(
+            plan=request.plan,
+            settings=request.settings,
+            workers=request.workers,
+            curve_label=request.curve_label,
+            args_summary=request.args_summary,
+            also_cache=request.also_cache,
+            parent=self,
+        )
+        self._batch_windows.append(window)
+        window.show()
+        window.start()
 
     def _apply_theme(self) -> None:
         self._theme = get_theme(self._settings.get("ui_theme"))

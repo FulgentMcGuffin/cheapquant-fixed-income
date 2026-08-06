@@ -4,12 +4,26 @@
       "PowerShell(git stash pop)",
       "PowerShell(uv run pytest tests/test_date_utils.py tests/test_day_of_month.py -q 2>&1)",
       "PowerShell(uv run pytest tests/test_bond_future_convention.py -q 2>&1)",
-      "PowerShell(uv run pytest tests/test_dlv_command.py -q 2>&1)"
+      "PowerShell(uv run pytest tests/test_dlv_command.py -q 2>&1)",
+      "Bash(python -c ' *)"
     ]
   },
   "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cat .mex/ROUTER.md",
+            "statusMessage": "Loading project scaffold..."
+          }
+        ]
+      }
+    ],
     "UserPromptSubmit": [
       {
+        "matcher": "",
         "hooks": [
           {
             "type": "command",
