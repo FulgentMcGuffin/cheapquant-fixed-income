@@ -20,6 +20,7 @@ from cqfi.batch.models import (
     CellDone,
     CellsStarted,
     CellStatus,
+    Stopping,
 )
 from cqfi.batch.planner import BatchPlan, IssuerPlan, WorkItem
 from cqfi.cache.registry import CacheRegistry, reset_cache_registry
@@ -254,11 +255,9 @@ def test_run_stopped_before_dispatch_cancels_everything(tmp_path: Path):
 def test_run_stopped_mid_flight_cancels_still_queued_work(tmp_path: Path):
     """Stop mid-run must not degenerate into running the whole plan to completion.
 
-    All work items are submitted to the executor upfront (see engine.py), so
-    a naive "wait for everything in ``pending``" drain on stop would silently
-    let the entire batch finish. With ``workers=1`` and several work items,
-    only the one item a worker has already picked up should be allowed to
-    finish; the rest must be cancelled before they ever run.
+    Work is submitted lazily (at most ``workers`` in flight). On Stop, not-yet
+    submitted items are never started, cancelable futures are cancelled, and
+    any still-running worker processes are terminated so CPU load drops.
     """
     settings = _settings(tmp_path)
     trade_date = date(2020, 1, 2)
@@ -306,13 +305,21 @@ def test_run_stopped_mid_flight_cancels_still_queued_work(tmp_path: Path):
     assert isinstance(done, BatchDone)
     assert done.cancelled is True
     assert done.total == total_items
-    # Only the batch(es) a worker had already picked up may complete; the
-    # rest (still queued behind the single worker) must be cancelled outright.
-    # A little slack (ProcessPoolExecutor buffers a couple of extra calls
-    # beyond max_workers) keeps this robust across Python versions.
-    assert done.completed <= 2
+    # Never-submitted items must not run; terminated in-flight work is not
+    # persisted. At most the one item that finished before kill may count.
+    assert done.completed <= 1
+    assert done.completed < total_items
     cell_done = [e for e in events if isinstance(e, CellDone)]
     assert len(cell_done) == done.completed
+
+    # The UI needs live visibility into the in-flight tail while workers are
+    # torn down — see Stopping's docstring.
+    stopping_events = [e for e in events if isinstance(e, Stopping)]
+    assert stopping_events, "expected at least one Stopping event during drain"
+    assert stopping_events[0].total >= 1
+    assert stopping_events[0].remaining == stopping_events[0].total
+    assert stopping_events[-1].remaining == 0
+    assert all(e.total == stopping_events[0].total for e in stopping_events)
 
 
 # ── also_cache: dual write to quant_cache_db (used by the /batch command) ──

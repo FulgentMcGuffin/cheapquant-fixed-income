@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import functools
 import sqlite3
 import threading
+import time
 from concurrent.futures import Future
 from datetime import date
 from pathlib import Path
@@ -17,6 +19,7 @@ from cqfi.batch.models import (
     FutureCellDone,
     FutureCellPayload,
     FutureCellsStarted,
+    Stopping,
 )
 from cqfi.bond_future_input import BondFutureInput
 from cqfi.bond_future_output import BondFutureBasketOutput, BondFutureOutput
@@ -76,6 +79,22 @@ def _fake_compute_future_batch(
         )
         results.append(FutureCellPayload(contract=label, success=True, request=request, result=result))
     return results
+
+
+def _slow_compute_future_batch_marked(
+    marker_path: str,
+    issuer_code: str,
+    trade_date: date,
+    baskets: list[DeliveryBasket],
+    curve_label: str,
+) -> list[FutureCellPayload]:
+    """Stand-in compute_fn: touches a marker file the instant it starts, then
+    sleeps briefly before completing normally — see the bond-engine test's
+    ``_slow_compute_batch_marked`` for why (deterministic mid-flight capture).
+    """
+    Path(marker_path).write_text("started", encoding="utf-8")
+    time.sleep(1.0)
+    return _fake_compute_future_batch(issuer_code, trade_date, baskets, curve_label)
 
 
 def _settings(tmp_path: Path) -> AppSettings:
@@ -270,3 +289,71 @@ def test_run_stopped_before_dispatch_cancels_everything(tmp_path: Path):
     done = events[-1]
     assert isinstance(done, BatchDone)
     assert done.cancelled is True
+
+
+def test_run_stopped_mid_flight_cancels_still_queued_work(tmp_path: Path):
+    """Mirrors the bond engine's test of the same name: stop mid-run must
+    not run the whole plan, must never start not-yet-submitted items, must
+    terminate in-flight workers, and must surface the tear-down via Stopping
+    events (see engine.py / Stopping's docstring).
+    """
+    settings = _settings(tmp_path)
+    marker = tmp_path / "started.marker"
+
+    total_items = 6
+    work_items = tuple(
+        FutureWorkItem(
+            issuer="ITA", trade_date=date(2020, 6, 15 + i), baskets=(_basket(_FBTP_U0, f"IT{i}"),)
+        )
+        for i in range(total_items)
+    )
+    plan = FutureBatchPlan(
+        series_plans=(
+            FutureSeriesPlan(
+                future_code="FBTP",
+                contracts=(_FBTP_U0,),
+                trade_dates=tuple(wi.trade_date for wi in work_items),
+                work_items=work_items,
+            ),
+        )
+    )
+
+    stop_event = threading.Event()
+    events = []
+
+    def _stop_once_started() -> None:
+        deadline = time.monotonic() + 10
+        while not marker.exists() and time.monotonic() < deadline:
+            time.sleep(0.02)
+        stop_event.set()
+
+    threading.Thread(target=_stop_once_started, daemon=True).start()
+
+    FutureBatchEngine().run(
+        plan,
+        settings,
+        workers=1,
+        curve_label="BOND_ZERO",
+        on_event=events.append,
+        stop_event=stop_event,
+        compute_fn=functools.partial(_slow_compute_future_batch_marked, str(marker)),
+        worker_initializer=_noop_initializer,
+    )
+
+    done = events[-1]
+    assert isinstance(done, BatchDone)
+    assert done.cancelled is True
+    assert done.total == total_items
+    # Never-submitted items must not run; terminated in-flight work is not
+    # persisted. At most the one item that finished before kill may count.
+    assert done.completed <= 1
+    assert done.completed < total_items
+    cell_done = [e for e in events if isinstance(e, FutureCellDone)]
+    assert len(cell_done) == done.completed
+
+    stopping_events = [e for e in events if isinstance(e, Stopping)]
+    assert stopping_events, "expected at least one Stopping event during drain"
+    assert stopping_events[0].total >= 1
+    assert stopping_events[0].remaining == stopping_events[0].total
+    assert stopping_events[-1].remaining == 0
+    assert all(e.total == stopping_events[0].total for e in stopping_events)

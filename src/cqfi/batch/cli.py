@@ -18,12 +18,12 @@ progress GUI by default; pass ``--no-gui`` for a plain console progress bar
 from __future__ import annotations
 
 import argparse
-import os
 import sys
 import time
 from datetime import date
 from pathlib import Path
 
+from cqfi.batch.command import DEFAULT_MAX_WORKERS, default_workers
 from cqfi.batch.engine import BatchEngine
 from cqfi.batch.future_engine import FutureBatchEngine
 from cqfi.batch.future_planner import FutureBatchPlan, build_future_plan
@@ -101,7 +101,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
         type=int,
         default=None,
         metavar="N",
-        help="Worker processes (default: os.cpu_count()).",
+        help=(
+            f"Worker processes (default: min(os.cpu_count(), {DEFAULT_MAX_WORKERS}) — "
+            "capped so Stop has fewer in-flight processes to terminate on "
+            "many-core machines; pass a higher N explicitly for max-throughput "
+            "unattended runs)."
+        ),
     )
     parser.add_argument(
         "--no-gui",
@@ -376,7 +381,7 @@ def main(argv: list[str] | None = None) -> int:
     configure_langsmith()
 
     settings = load_settings(args.config)
-    workers = args.workers or os.cpu_count() or 4
+    workers = args.workers or default_workers()
 
     if args.future:
         return _run_future_mode(args, settings, workers, qt_extra)

@@ -88,7 +88,22 @@ class BatchDone:
     total: int
 
 
-BatchEvent = BatchStarted | CellsStarted | CellDone | BatchDone
+@dataclass(frozen=True)
+class Stopping:
+    """Emitted while draining after a stop request, once ``remaining`` changes.
+
+    Queued work is never submitted after Stop (engines feed the process pool
+    lazily). In-flight worker processes are terminated so CPU load drops
+    immediately; their futures then settle with errors and are abandoned
+    (not written to the DB). ``total`` is the in-flight count when Stop was
+    first detected; ``remaining`` counts down to 0 as those futures settle.
+    """
+
+    remaining: int
+    total: int
+
+
+BatchEvent = BatchStarted | CellsStarted | CellDone | BatchDone | Stopping
 
 
 # ── Bond futures (cqfi.batch.future_planner / future_worker / future_engine) ─
@@ -133,4 +148,4 @@ class FutureCellDone:
     total: int
 
 
-FutureBatchEvent = BatchStarted | FutureCellsStarted | FutureCellDone | BatchDone
+FutureBatchEvent = BatchStarted | FutureCellsStarted | FutureCellDone | BatchDone | Stopping

@@ -51,6 +51,7 @@ from cqfi.batch.models import (
     CellStatus,
     FutureCellDone,
     FutureCellsStarted,
+    Stopping,
 )
 from cqfi.batch.planner import BatchPlan, IssuerPlan
 from cqfi.config import AppSettings
@@ -469,7 +470,7 @@ class _BaseBatchWindow(QMainWindow):
         raise NotImplementedError
 
     def _apply_progress_event(self, event) -> None:
-        """Shared handling for the two events every engine emits."""
+        """Shared handling for the events every engine emits directly (not per-cell)."""
         if isinstance(event, BatchStarted):
             self._progress.setRange(0, max(event.total_cells, 1))
             self._progress.setValue(0)
@@ -479,6 +480,13 @@ class _BaseBatchWindow(QMainWindow):
             self._progress.setFormat(
                 ("Stopped: " if event.cancelled else "Done: ") + "%v / %m"
             )
+        elif isinstance(event, Stopping):
+            # In-flight workers are being torn down; surface the tail so
+            # "Stopping…" doesn't look frozen while futures settle.
+            if event.remaining:
+                self._stop_btn.setText(f"Stopping… ({event.remaining}/{event.total} left)")
+            else:
+                self._stop_btn.setText("Stopping…")
 
     def _on_cell_hovered(self, info: HoverInfo | None) -> None:
         if info is None or info.status not in (CellStatus.SUCCESS, CellStatus.FAILED):
@@ -496,8 +504,9 @@ class _BaseBatchWindow(QMainWindow):
         answer = QMessageBox.question(
             self,
             "Stop batch run?",
-            "This cancels any queued work, lets in-progress calculations finish "
-            "and get written to bond_analytics_db, then closes this window.\n\n"
+            "This cancels queued work and terminates worker processes so CPU "
+            "load drops immediately. Results already written stay in "
+            "bond_analytics_db; in-progress calculations are abandoned.\n\n"
             "Continue?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )

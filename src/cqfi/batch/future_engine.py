@@ -25,7 +25,9 @@ from cqfi.batch.models import (
     FutureCellDone,
     FutureCellPayload,
     FutureCellsStarted,
+    Stopping,
 )
+from cqfi.batch.pool import terminate_pool_workers
 from cqfi.batch.worker import worker_init
 from cqfi.cache.registry import CacheRegistry, get_cache_registry
 from cqfi.config import AppSettings
@@ -74,6 +76,7 @@ class FutureBatchEngine:
             settings.bond_analytics_db_path, settings.quant_cache_semantics_path
         )
         self._ensure_conventions(registry, plan)
+        work_items = [item for item in plan.work_items if item.baskets]
         completed = 0
         cancelled = False
         try:
@@ -83,51 +86,87 @@ class FutureBatchEngine:
                 initargs=(str(settings.config_path),),
             ) as executor:
                 future_to_item: dict[Future, FutureWorkItem] = {}
-                for item in plan.work_items:
-                    if not item.baskets:
-                        continue
-                    future = executor.submit(
-                        compute_fn,
-                        item.issuer,
-                        item.trade_date,
-                        list(item.baskets),
-                        curve_label,
-                    )
-                    future_to_item[future] = item
-                    on_event(
-                        FutureCellsStarted(
-                            issuer=item.issuer,
-                            trade_date=item.trade_date,
-                            contracts=tuple(str(b.bond_future) for b in item.baskets),
-                        )
-                    )
+                in_flight: set[Future] = set()
+                next_idx = 0
 
-                pending = set(future_to_item)
-                while pending:
+                def _submit_available() -> None:
+                    """Keep at most ``workers`` futures in flight.
+
+                    See ``BatchEngine.run`` — same ProcessPoolExecutor cancel
+                    limitation and Stop UX; feed work lazily and kill the
+                    uncancellable in-flight tail on stop.
+                    """
+                    nonlocal next_idx
+                    while (
+                        next_idx < len(work_items)
+                        and len(in_flight) < workers
+                        and not (stop_event is not None and stop_event.is_set())
+                    ):
+                        item = work_items[next_idx]
+                        next_idx += 1
+                        future = executor.submit(
+                            compute_fn,
+                            item.issuer,
+                            item.trade_date,
+                            list(item.baskets),
+                            curve_label,
+                        )
+                        future_to_item[future] = item
+                        in_flight.add(future)
+                        on_event(
+                            FutureCellsStarted(
+                                issuer=item.issuer,
+                                trade_date=item.trade_date,
+                                contracts=tuple(
+                                    str(b.bond_future) for b in item.baskets
+                                ),
+                            )
+                        )
+
+                _submit_available()
+                if stop_event is not None and stop_event.is_set() and not in_flight:
+                    cancelled = True
+
+                while in_flight:
                     if stop_event is not None and stop_event.is_set():
                         cancelled = True
-                        # All futures were submitted upfront, so most of
-                        # ``pending`` is likely still sitting in the executor's
-                        # internal queue rather than actually running.
-                        # future.cancel() succeeds for those (they never start,
-                        # never get a result) and fails (returns False) for
-                        # ones a worker has already picked up — those we still
-                        # have to wait for since we can't interrupt them mid-run.
-                        still_running = {f for f in pending if not f.cancel()}
-                        while still_running:
-                            done, still_running = wait(still_running, timeout=0.5)
-                            for future in done:
-                                completed = self._handle_result(
-                                    future, future_to_item[future], registry,
-                                    curve_label, completed, total, on_event, also_cache,
+                        next_idx = len(work_items)
+                        still_running = {f for f in in_flight if not f.cancel()}
+                        in_flight.clear()
+                        tail_total = len(still_running)
+                        if tail_total:
+                            on_event(Stopping(remaining=tail_total, total=tail_total))
+                            terminate_pool_workers(executor)
+                            pending_tail = set(still_running)
+                            while pending_tail:
+                                done, pending_tail = wait(pending_tail, timeout=0.5)
+                                for future in done:
+                                    try:
+                                        future.result()
+                                    except Exception:
+                                        pass
+                                on_event(
+                                    Stopping(
+                                        remaining=len(pending_tail), total=tail_total
+                                    )
                                 )
                         break
-                    done, pending = wait(pending, timeout=0.2, return_when=FIRST_COMPLETED)
+
+                    done, in_flight = wait(
+                        in_flight, timeout=0.2, return_when=FIRST_COMPLETED
+                    )
                     for future in done:
                         completed = self._handle_result(
-                            future, future_to_item[future], registry,
-                            curve_label, completed, total, on_event, also_cache,
+                            future,
+                            future_to_item[future],
+                            registry,
+                            curve_label,
+                            completed,
+                            total,
+                            on_event,
+                            also_cache,
                         )
+                    _submit_available()
 
                 executor.shutdown(wait=True, cancel_futures=True)
         finally:

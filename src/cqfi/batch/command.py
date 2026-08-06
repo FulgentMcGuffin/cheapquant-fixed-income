@@ -116,8 +116,23 @@ class FutureBatchLaunchRequest:
     args_summary: str
 
 
+DEFAULT_MAX_WORKERS = 16
+"""Cap on the auto-detected worker count (``os.cpu_count()``).
+
+Stop terminates in-flight worker processes, but a larger pool still means
+more work was already running (and more processes to tear down). Capping the
+auto-detected default keeps that Stop tail short while still letting
+``--workers N`` opt into full-throughput unattended runs.
+"""
+
+
+def default_workers() -> int:
+    """Auto-detected worker count for an unspecified ``--workers``/``workers=``."""
+    return min(os.cpu_count() or 4, DEFAULT_MAX_WORKERS)
+
+
 def _resolved_workers(workers: int | None) -> int:
-    return workers or os.cpu_count() or 4
+    return workers or default_workers()
 
 
 def build_batch_launch_request(
