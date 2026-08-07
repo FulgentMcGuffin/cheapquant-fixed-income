@@ -297,6 +297,18 @@ cqfi> /save_cache off               # Discard cache analytics on exit (no merge)
 cqfi> /save_cache                   # Help + current save setting
 ```
 
+#### Database cleanup
+
+```
+cqfi> /clean bonds                  # Dedupe bond_analytics in bond_analytics_db
+cqfi> /clean                        # Show /clean help
+```
+
+For each `(bond_id, trade_date)` pair, `/clean bonds` deletes older duplicate
+rows and keeps the one with the latest `created_at`. Available in the CLI REPL,
+one-shot queries, and GUI chat (including LLM mode). Only `bonds` is supported
+for now.
+
 #### Session management
 
 ```
@@ -465,7 +477,7 @@ uv run cqfi-gui --config config/cqfi.yaml
 
 The GUI uses the same `config/cqfi.yaml`, runtime JSON settings, dataset routing,
 and slash commands (`/bond`, `/mctx`, `/calc` for bond or CMT analytics, `/dlv`,
-`/fut`, `/batch`, `/cache`, `/save_cache`, …) as the CLI. Set `ANTHROPIC_API_KEY` in `.env`
+`/fut`, `/batch`, `/cache`, `/save_cache`, `/clean`, …) as the CLI. Set `ANTHROPIC_API_KEY` in `.env`
 for LLM-powered queries.
 
 ## LLM Evaluation

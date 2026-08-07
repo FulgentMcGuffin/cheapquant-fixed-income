@@ -336,6 +336,7 @@ class LlmWorker(QObject):
             handle_batch_command,
             handle_bond_command,
             handle_calc_command,
+            handle_clean_command,
             handle_dlv_command,
             handle_fut_command,
             handle_mctx_command,
@@ -346,6 +347,7 @@ class LlmWorker(QObject):
             build_future_batch_launch_request,
             parse_batch_command,
         )
+        from cqfi.clean.command import execute_clean_bonds, parse_clean_command
         from cqfi.cli_tools import (
             check_market_context,
             execute_dlv_command,
@@ -395,6 +397,11 @@ class LlmWorker(QObject):
             self.finished.emit(batch_help, None)
             return
 
+        clean_help = handle_clean_command(text)
+        if clean_help is not None:
+            self.finished.emit(clean_help, None)
+            return
+
         batch_parsed = parse_batch_command(text)
         if batch_parsed is not None and batch_parsed.kind == "run" and batch_parsed.mode == "bond":
             try:
@@ -440,6 +447,14 @@ class LlmWorker(QObject):
                 f"{future_request.plan.total_cells} cells ({future_request.args_summary}).",
                 None,
             )
+            return
+
+        clean_parsed = parse_clean_command(text)
+        if clean_parsed is not None and clean_parsed.kind == "run_bonds":
+            try:
+                self.finished.emit(execute_clean_bonds(self._app_settings), None)
+            except Exception as exc:
+                self.finished.emit(f"Clean error: {exc}", None)
             return
 
         # Check for bare mention shortcut: @id

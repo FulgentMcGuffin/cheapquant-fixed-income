@@ -43,6 +43,11 @@ from cqfi.batch.command import (
     build_future_batch_launch_request,
     parse_batch_command,
 )
+from cqfi.clean.command import (
+    execute_clean_bonds,
+    handle_clean_command,
+    parse_clean_command,
+)
 from cqfi.cache.manager import CacheManager
 from cqfi.cli_tools import (
     build_delivery_basket,
@@ -133,6 +138,11 @@ HELP_TEXT_CQFI = (
     "  /save_cache on   — on exit, merge quant_cache_db analytics into bond_analytics_db\n"
     "  /save_cache off  — on exit, discard quant_cache_db analytics without merging\n"
     "  /save_cache      — show help and current save_quant_cache_to_bond_analytics_after_session setting\n"
+    "\n"
+    "Database cleanup:\n"
+    "  /clean bonds  — remove duplicate bond_analytics rows (keep latest created_at\n"
+    "                  per bond_id and trade_date)\n"
+    "  /clean        — show /clean help\n"
     "\n"
     "Bond analytics commands:\n"
     "  /calc <bond_id> [date] [curve] [term_structure]  — compute bond analytics\n"
@@ -845,6 +855,11 @@ async def _query_dataset(
         print(batch_help)
         return
 
+    clean_help = handle_clean_command(text)
+    if clean_help is not None:
+        print(clean_help)
+        return
+
     # Check for slash commands before routing to planner
     bond_match = _BOND_RE.match(text.strip())
     if bond_match:
@@ -897,6 +912,14 @@ async def _query_dataset(
             print(execute_batch_command(batch_parsed))
         except Exception as exc:
             print(f"Batch error: {exc}")
+        return
+
+    clean_parsed = parse_clean_command(text.strip())
+    if clean_parsed is not None and clean_parsed.kind == "run_bonds":
+        try:
+            print(execute_clean_bonds())
+        except Exception as exc:
+            print(f"Clean error: {exc}")
         return
 
     use_agent, use_single_shot = resolve_query_mode(
@@ -979,6 +1002,11 @@ def _handle_local_command(
     batch_help = handle_batch_command(text)
     if batch_help is not None:
         print(batch_help)
+        return True
+
+    clean_help = handle_clean_command(text)
+    if clean_help is not None:
+        print(clean_help)
         return True
 
     if lowered in ("help", "?"):
@@ -1091,6 +1119,14 @@ def _handle_local_command(
             print(execute_batch_command(batch_parsed))
         except Exception as exc:
             print(f"Batch error: {exc}")
+        return True
+
+    clean_parsed = parse_clean_command(text.strip())
+    if clean_parsed is not None and clean_parsed.kind == "run_bonds":
+        try:
+            print(execute_clean_bonds())
+        except Exception as exc:
+            print(f"Clean error: {exc}")
         return True
 
     return _handle_bond_future_commands(text.strip())
