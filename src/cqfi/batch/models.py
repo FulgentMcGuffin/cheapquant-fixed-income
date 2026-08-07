@@ -74,7 +74,7 @@ class CellDone:
     trade_date: date
     bond_key: str
     status: CellStatus
-    detail: str | None  # analytics JSON on SUCCESS, error message on FAILED
+    detail: str | None  # bond_analytics row JSON on SUCCESS, error message on FAILED
     completed: int
     total: int
 
@@ -143,7 +143,7 @@ class FutureCellDone:
     trade_date: date
     contract: str
     status: CellStatus
-    detail: str | None  # basket analytics JSON on SUCCESS, error message on FAILED
+    detail: str | None  # bond_future_outputs rows JSON on SUCCESS, error on FAILED
     completed: int
     total: int
 

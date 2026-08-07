@@ -92,6 +92,12 @@ the GUI) renders tables and charts from the result.
   run `/fut` with a repo curve across several trade dates, and compare the
   cheapest-to-deliver bond and its net basis over time.
 
+- **Batch bond and bond-future analytics** — compute analytics for every active
+  bond (or every dated futures contract in a delivery cycle) across a trade-date
+  range, writing results straight into `bond_analytics_db`. Run from the
+  standalone CLI (`batch_bond_analytics.py`) or launch the same progress GUI
+  from the REPL with `/batch`. See [Batch processing](#batch-processing).
+
 ### On the roadmap
 
 - **Plug-in user tools** — register custom Python callables as agent tools
@@ -300,6 +306,28 @@ cqfi> sessions
 cqfi> reset cache                   # Clear quant cache DB and analytics tables
 ```
 
+#### Batch analytics
+
+Opens the batch progress window (same GUI as the standalone script). See
+[Batch processing](#batch-processing) for full details.
+
+Bond mode — one issuer, inclusive date range:
+
+```
+cqfi> /batch FRA 2020-01-01 2020-12-31
+cqfi> /batch                         # Show /batch help
+```
+
+Bond-future mode — one future code, delivery-month letters, date range
+(letters from `FGHJKMNQUVXZ`; default quarterly set is `HMUZ`):
+
+```
+cqfi> /batch FGBM HMUZ 2020-01-01 2020-12-31
+```
+
+When `/cache on` is active, batch runs also mirror rows into `quant_cache_db`;
+the standalone CLI never touches the session cache.
+
 ### LLM mode
 
 Natural-language dataset questions require LLM mode:
@@ -348,6 +376,85 @@ Force rule syntax even when an API key is set: `cqfi --rule`
 LangSmith tracing is **off by default** — set `CQFI_LANGSMITH=1` in `.env` to
 opt in (requires `LANGCHAIN_API_KEY`).
 
+## Batch processing
+
+Batch runs price every **bond × trade date** (bond mode) or every **dated
+contract × trade date** (bond-future mode) over an inclusive calendar range.
+Work is dispatched across a process pool; the parent process alone writes to
+`bond_analytics_db` (`bond_analytics`, `cmt_analytics`, or
+`bond_future_basket_outputs` / `bond_future_outputs`). The standalone script
+never writes to `quant_cache_db`; the `/batch` slash command optionally mirrors
+results there when `/cache on`.
+
+![Batch bond analytics progress GUI — heatmap tabs per issuer, live status colours, progress bar, and JSON detail on hover](resource/png/batch_bonds_gui.png)
+
+The progress window shows:
+
+- One heatmap tab per issuer (bond mode) or future code (bond-future mode)
+- Rows = bonds or dated contracts; columns = trade dates in the range
+- Cell colours: queued (yellow), in progress (black), success (green), failed
+  (red), not applicable that day (grey)
+- Overall progress and a **Stop** button (cancels queued work and terminates
+  worker processes; rows already written remain in the database)
+- A detail pane: hover a green or red cell to see the JSON row written for
+  that cell (floats rounded to four decimals in the display only)
+
+### Standalone CLI (`batch_bond_analytics.py`)
+
+Bond mode — one or more issuers:
+
+```powershell
+uv run batch_bond_analytics.py --config ./config/cqfi.yaml `
+  --issuer FRA ITA --start 2020-01-01 --end 2020-12-31
+```
+
+Bond-future mode — one or more contract codes, optional delivery letters
+(default `HMUZ` = Mar/Jun/Sep/Dec for each year spanned by the range):
+
+```powershell
+uv run batch_bond_analytics.py --config ./config/cqfi.yaml `
+  --future FGBX FGBM --delivery HMUZ `
+  --start 2020-01-01 --end 2020-12-31
+```
+
+| Flag | Purpose |
+|------|---------|
+| `--issuer CODE …` | Bond mode: issuer codes or aliases (mutually exclusive with `--future`) |
+| `--future CODE …` | Bond-future mode: canonical or synonym codes (e.g. `FGBM`, `IK`) |
+| `--delivery LETTERS` | Bond-future only: month letters to include (default `HMUZ`) |
+| `--start`, `--end` | Inclusive trade-date range (`YYYY-MM-DD`) |
+| `--curve-label` | `BOND_ZERO` (default) or `BOND_PAR` |
+| `--workers N` | Process pool size (default `min(cpu_count, 16)`) |
+| `--no-gui` | Text progress bar instead of the heatmap window (CI / headless) |
+
+Only bonds **active** on a given trade date are scheduled (grey cells = not in
+the universe that day). Bond-future cells are skipped once the contract has
+delivered.
+
+### `/batch` slash command (`cqfi` / `cqfi-gui`)
+
+Same engine and progress GUI as the standalone script, launched from the REPL
+or GUI chat. Uses the session's loaded config (`get_settings()`); there is no
+`--config` argument on the command itself.
+
+```
+cqfi> /batch FRA 2021-01-01 2021-02-28
+cqfi> /batch FGBM HMUZ 2020-01-01 2020-12-31
+```
+
+| Form | Meaning |
+|------|---------|
+| `/batch <issuer> <start> <end>` | All active bonds for one issuer, each business day in range |
+| `/batch <future> <delivery> <start> <end>` | Dated contracts for one future code and delivery letters |
+
+If `/cache on`, successful cells are written to both `bond_analytics_db` and
+`quant_cache_db`; otherwise only `bond_analytics_db`. Query stored batch output
+with the `bond_analytics:` dataset prefix (e.g. `bond_analytics: show latest
+FRA bond analytics for January 2021`).
+
+VS Code / Cursor launch profiles for batch runs are listed under
+[Debug configurations](#debug-configurations-cursor--vs-code).
+
 ## GUI usage (`cqfi-gui`)
 
 ```powershell
@@ -357,7 +464,7 @@ uv run cqfi-gui --config config/cqfi.yaml
 
 The GUI uses the same `config/cqfi.yaml`, runtime JSON settings, dataset routing,
 and slash commands (`/bond`, `/mctx`, `/calc` for bond or CMT analytics, `/dlv`,
-`/fut`, `/cache`, `/save_cache`) as the CLI. Set `ANTHROPIC_API_KEY` in `.env`
+`/fut`, `/batch`, `/cache`, `/save_cache`, …) as the CLI. Set `ANTHROPIC_API_KEY` in `.env`
 for LLM-powered queries.
 
 ## LLM Evaluation
@@ -861,6 +968,7 @@ src/cqfi/
   bond_future_calculator.py         — BondFutureCalculator protocol
   day_of_month.py                   — DayOfMonthSpec (reference/delivery day rules)
   cli_tools.py                      — get_bond, check_market_context, compute_bond_analytics, compute_cmt_analytics, build_delivery_basket, compute_bond_future_analytics, /calc /dlv /fut parsing
+  batch/                            — batch planner, process-pool engines, /batch command parsing
   agent/
     cli.py                          — cqfi REPL, slash commands, query routing
     planner.py                      — rule/LLM query planning
@@ -903,6 +1011,8 @@ Five launch profiles are defined in `.vscode/launch.json`:
 | `cqfi: price CMT` | CLI pricing smoke-run (`USA 2020-01-02`) |
 | `cqfi-gui` | GUI window (uses `config/cqfi.yaml`) |
 | `cqfi-gui: custom config` | GUI window with explicit `--config` flag |
+| `batch_bond_analytics: … (CLI)` | Standalone batch script (bond or bond-future args in `launch.json`) |
+| `cqfi: /batch … (LLM one-shot)` | REPL one-shot `/batch` → progress GUI |
 
 ## Dependencies
 

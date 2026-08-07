@@ -14,13 +14,14 @@ future-specific) and are shared by both ``BatchAnalyticsWindow`` (bonds) and
 
 from __future__ import annotations
 
+import json
 import threading
 from collections.abc import Mapping, Sequence
 from datetime import date
-from typing import NamedTuple
+from typing import Any, NamedTuple
 
 from PySide6.QtCore import QRect, Qt, QThread, Signal
-from PySide6.QtGui import QCloseEvent, QColor, QFontMetrics, QPainter
+from PySide6.QtGui import QCloseEvent, QColor, QFont, QFontMetrics, QPainter, QResizeEvent
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
@@ -75,6 +76,161 @@ class HoverInfo(NamedTuple):
     trade_date: date
     status: CellStatus
     detail: str | None
+
+
+_FLOAT_DISPLAY_DECIMALS = 4
+_JSON_FONT_MAX_PT = 9
+_JSON_FONT_MIN_PT = 4
+_JSON_FONT_MIN_PX = 7  # last-resort pixel size when point sizes still overflow
+
+
+def _round_floats_for_display(value: Any, ndigits: int = _FLOAT_DISPLAY_DECIMALS) -> Any:
+    """Return a copy of *value* with floats rounded for display only."""
+    if isinstance(value, float):
+        if value != value:  # NaN
+            return value
+        return round(value, ndigits)
+    if isinstance(value, dict):
+        return {k: _round_floats_for_display(v, ndigits) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_round_floats_for_display(v, ndigits) for v in value]
+    return value
+
+
+def _compact_row_lines(payload: Any) -> str | None:
+    """One compact JSON object per line (good for ``{"rows":[...]}`` / lists)."""
+    rows: list[Any] | None = None
+    wrapper_key = None
+    if isinstance(payload, dict) and isinstance(payload.get("rows"), list):
+        rows = payload["rows"]
+        wrapper_key = "rows"
+        extra = {k: v for k, v in payload.items() if k != "rows"}
+    elif isinstance(payload, list):
+        rows = payload
+        extra = {}
+    else:
+        return None
+    if not rows:
+        return None
+    lines = [
+        json.dumps(
+            _round_floats_for_display(row), separators=(",", ":"), ensure_ascii=False
+        )
+        for row in rows
+    ]
+    body = ",\n".join(lines)
+    if wrapper_key is None:
+        return "[\n" + body + "\n]"
+    # Keep non-row keys (e.g. _warning) on a trailing compact line.
+    if extra:
+        extras = json.dumps(
+            _round_floats_for_display(extra), separators=(",", ":"), ensure_ascii=False
+        )
+        # extras is "{...}"; splice into {"rows":[...], ...}
+        extras_inner = extras[1:-1].strip()
+        if extras_inner:
+            return '{"' + wrapper_key + '":[\n' + body + "\n]," + extras_inner + "}"
+    return '{"' + wrapper_key + '":[\n' + body + "\n]}"
+
+
+def _detail_display_candidates(detail: str | None) -> list[str]:
+    """Return JSON renderings from roomiest to densest (display-only copies)."""
+    if not detail:
+        return [""]
+    try:
+        payload = _round_floats_for_display(json.loads(detail))
+    except (TypeError, json.JSONDecodeError):
+        return [detail]
+
+    candidates = [
+        json.dumps(payload, indent=2, ensure_ascii=False),
+        json.dumps(payload, indent=1, ensure_ascii=False),
+    ]
+    row_lines = _compact_row_lines(payload)
+    if row_lines is not None:
+        candidates.append(row_lines)
+    candidates.append(json.dumps(payload, separators=(",", ":"), ensure_ascii=False))
+    # De-dupe while preserving order.
+    seen: set[str] = set()
+    unique: list[str] = []
+    for text in candidates:
+        if text not in seen:
+            seen.add(text)
+            unique.append(text)
+    return unique
+
+
+class FittingJsonView(QPlainTextEdit):
+    """Read-only JSON view: compact spacing + smaller fonts until text fits (no scroll)."""
+
+    def __init__(self, parent: QWidget | None = None):
+        super().__init__(parent)
+        self.setObjectName("chatView")
+        self.setReadOnly(True)
+        self.setLineWrapMode(QPlainTextEdit.LineWrapMode.WidgetWidth)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.setPlaceholderText(
+            "Hover over a completed (green) or failed (red) cell to see details."
+        )
+        self.document().setDocumentMargin(1)
+        self.setStyleSheet("QPlainTextEdit { padding: 0px; }")
+        self._candidates: list[str] = []
+        self.setFont(QFont("Consolas", _JSON_FONT_MAX_PT))
+
+    def clear_text(self) -> None:
+        self._candidates = []
+        self.clear()
+
+    def set_detail(self, detail: str | None) -> None:
+        """Show *detail*, shrinking whitespace/font until it fits the viewport."""
+        self._candidates = _detail_display_candidates(detail)
+        self._fit()
+
+    def resizeEvent(self, event: QResizeEvent) -> None:
+        super().resizeEvent(event)
+        if self._candidates:
+            self._fit()
+
+    def _font_candidates(self) -> list[QFont]:
+        fonts: list[QFont] = []
+        for size in range(_JSON_FONT_MAX_PT, _JSON_FONT_MIN_PT - 1, -1):
+            fonts.append(QFont("Consolas", size))
+        for px in range(11, _JSON_FONT_MIN_PX - 1, -1):
+            font = QFont("Consolas")
+            font.setPixelSize(px)
+            fonts.append(font)
+        return fonts
+
+    def _text_fits(self, text: str, font: QFont, width: int, height: int) -> bool:
+        doc = self.document()
+        doc.setDefaultFont(font)
+        doc.setDocumentMargin(1)
+        doc.setTextWidth(width)
+        self.setFont(font)
+        self.setPlainText(text)
+        return doc.size().height() <= height + 0.5
+
+    def _fit(self) -> None:
+        """Choose the roomiest formatting + largest font that fits; never scroll."""
+        if not self._candidates or self._candidates == [""]:
+            self.clear()
+            return
+        viewport_h = max(self.viewport().height(), 1)
+        viewport_w = max(self.viewport().width(), 1)
+        fonts = self._font_candidates()
+        for text in self._candidates:
+            for font in fonts:
+                if self._text_fits(text, font, viewport_w, viewport_h):
+                    self.setVerticalScrollBarPolicy(
+                        Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+                    )
+                    return
+        # Last resort: densest text + smallest font (may clip; still no scrollbar —
+        # scrollbars are unusable while the panel is hover-driven).
+        self.setFont(fonts[-1])
+        self.setPlainText(self._candidates[-1])
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -431,17 +587,22 @@ class _BaseBatchWindow(QMainWindow):
         progress_row.addWidget(self._stop_btn)
         layout.addLayout(progress_row)
 
-        self._info_panel = QPlainTextEdit()
-        self._info_panel.setReadOnly(True)
-        self._info_panel.setObjectName("chatView")
-        self._info_panel.setPlaceholderText(
+        info_box = QWidget()
+        info_box.setFixedHeight(220)
+        info_layout = QVBoxLayout(info_box)
+        info_layout.setContentsMargins(0, 0, 0, 0)
+        info_layout.setSpacing(2)
+        self._info_header = QLabel(
             "Hover over a completed (green) or failed (red) cell to see details."
         )
-        self._info_panel.setFixedHeight(160)
-        mono_font = self._info_panel.font()
-        mono_font.setFamily("Consolas")
-        self._info_panel.setFont(mono_font)
-        layout.addWidget(self._info_panel)
+        self._info_header.setWordWrap(True)
+        header_font = self._info_header.font()
+        header_font.setPointSize(9)
+        self._info_header.setFont(header_font)
+        info_layout.addWidget(self._info_header)
+        self._info_panel = FittingJsonView()
+        info_layout.addWidget(self._info_panel, stretch=1)
+        layout.addWidget(info_box)
 
         shell_layout.addWidget(content)
         outer_layout.addWidget(shell)
@@ -489,11 +650,15 @@ class _BaseBatchWindow(QMainWindow):
                 self._stop_btn.setText("Stopping…")
 
     def _on_cell_hovered(self, info: HoverInfo | None) -> None:
+        # Keep the last SUCCESS/FAILED detail when the pointer leaves the cell —
+        # clearing on leave made the panel unreadable (and any scrollbar
+        # unusable, since moving toward it left the cell).
         if info is None or info.status not in (CellStatus.SUCCESS, CellStatus.FAILED):
-            self._info_panel.setPlainText("")
             return
-        header = f"{info.row_key}  |  {info.trade_date.isoformat()}  |  {info.status.value}\n\n"
-        self._info_panel.setPlainText(header + (info.detail or ""))
+        self._info_header.setText(
+            f"{info.row_key}  |  {info.trade_date.isoformat()}  |  {info.status.value}"
+        )
+        self._info_panel.set_detail(info.detail)
 
     def _confirm_and_stop(self) -> None:
         if self._finished:

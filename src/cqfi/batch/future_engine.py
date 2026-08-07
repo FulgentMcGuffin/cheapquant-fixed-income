@@ -11,6 +11,7 @@ that sharing would need extra indirection for little real savings.
 
 from __future__ import annotations
 
+import json
 import threading
 from collections.abc import Callable
 from concurrent.futures import FIRST_COMPLETED, Future, ProcessPoolExecutor, wait
@@ -225,34 +226,36 @@ class FutureBatchEngine:
                 detail = "Empty delivery basket; nothing to persist."
             elif payload.success:
                 try:
-                    registry.persist_bond_future_compute(
+                    db_rows = registry.persist_bond_future_compute(
                         owner=_OWNER,
                         method=_METHOD,
                         request=payload.request,
                         result=payload.result,
                     )
                     status = CellStatus.SUCCESS
-                    detail = payload.result.as_json(indent=2)
+                    warning: str | None = None
+                    if also_cache:
+                        try:
+                            cache_registry = get_cache_registry()
+                            try:
+                                cache_registry.upsert_bond_future_convention(
+                                    payload.result.bond_future.convention.name
+                                )
+                            except Exception:
+                                pass
+                            cache_registry.persist_bond_future_compute(
+                                owner=_OWNER,
+                                method=_METHOD,
+                                request=payload.request,
+                                result=payload.result,
+                            )
+                        except Exception as exc:
+                            warning = f"not written to quant_cache_db: {exc}"
+                    detail = json.dumps(
+                        {"rows": db_rows, **({"_warning": warning} if warning else {})}
+                    )
                 except Exception as exc:
                     detail = f"Failed to write to bond_analytics_db: {exc}"
-
-                if status == CellStatus.SUCCESS and also_cache:
-                    try:
-                        cache_registry = get_cache_registry()
-                        try:
-                            cache_registry.upsert_bond_future_convention(
-                                payload.result.bond_future.convention.name
-                            )
-                        except Exception:
-                            pass
-                        cache_registry.persist_bond_future_compute(
-                            owner=_OWNER,
-                            method=_METHOD,
-                            request=payload.request,
-                            result=payload.result,
-                        )
-                    except Exception as exc:
-                        detail = f"{detail}\n\n(Warning: not written to quant_cache_db: {exc})"
             completed += 1
             on_event(
                 FutureCellDone(

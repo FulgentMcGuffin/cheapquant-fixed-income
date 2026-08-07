@@ -8,6 +8,7 @@ two front ends.
 
 from __future__ import annotations
 
+import json
 import threading
 from collections.abc import Callable
 from concurrent.futures import FIRST_COMPLETED, Future, ProcessPoolExecutor, wait
@@ -210,7 +211,7 @@ class BatchEngine:
             detail = payload.error
             if payload.success:
                 try:
-                    registry.persist_bond_compute(
+                    db_row = registry.persist_bond_compute(
                         owner=_OWNER,
                         method=_METHOD,
                         request=payload.request,
@@ -220,23 +221,25 @@ class BatchEngine:
                         mm_fc_cmt_metrics=payload.mm_fc_cmt_metrics,
                     )
                     status = CellStatus.SUCCESS
-                    detail = payload.bond_metrics.as_json(indent=2)
+                    if also_cache:
+                        try:
+                            get_cache_registry().persist_bond_compute(
+                                owner=_OWNER,
+                                method=_METHOD,
+                                request=payload.request,
+                                curve_label=curve_label,
+                                bond_metrics=payload.bond_metrics,
+                                mm_cmt_metrics=payload.mm_cmt_metrics,
+                                mm_fc_cmt_metrics=payload.mm_fc_cmt_metrics,
+                            )
+                        except Exception as exc:
+                            db_row = {
+                                **db_row,
+                                "_warning": f"not written to quant_cache_db: {exc}",
+                            }
+                    detail = json.dumps(db_row)
                 except Exception as exc:
                     detail = f"Failed to write to bond_analytics_db: {exc}"
-
-                if status == CellStatus.SUCCESS and also_cache:
-                    try:
-                        get_cache_registry().persist_bond_compute(
-                            owner=_OWNER,
-                            method=_METHOD,
-                            request=payload.request,
-                            curve_label=curve_label,
-                            bond_metrics=payload.bond_metrics,
-                            mm_cmt_metrics=payload.mm_cmt_metrics,
-                            mm_fc_cmt_metrics=payload.mm_fc_cmt_metrics,
-                        )
-                    except Exception as exc:
-                        detail = f"{detail}\n\n(Warning: not written to quant_cache_db: {exc})"
             completed += 1
             on_event(
                 CellDone(

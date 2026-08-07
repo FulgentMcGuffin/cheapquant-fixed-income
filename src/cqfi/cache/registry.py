@@ -288,8 +288,11 @@ class CacheRegistry:
         bond_metrics: FixedIncomeAnalyticsOutput,
         mm_cmt_metrics: FixedIncomeAnalyticsOutput | None,
         mm_fc_cmt_metrics: FixedIncomeAnalyticsOutput | None,
-    ) -> FixedIncomeAnalyticsOutput:
-        """Write bond + linked CMT rows; stamp link ids onto *bond_metrics* and return it."""
+    ) -> dict[str, Any]:
+        """Write bond + linked CMT rows; stamp link ids onto *bond_metrics*.
+
+        Returns the ``bond_analytics`` row dict that was inserted (JSON-ready).
+        """
         created_at = utc_now_ms()
         method_key = f"{owner}:{method}"
         analytic_id = join_id(method_key, short_id())
@@ -365,7 +368,7 @@ class CacheRegistry:
         bond_row["mm_cmt_analytic_id"] = mm_cmt_id
         bond_row["mm_fc_cmt_analytic_id"] = mm_fc_id
         self._insert_row("bond_analytics", bond_row)
-        return bond_metrics
+        return bond_row
 
     def persist_cmt_compute(
         self,
@@ -458,8 +461,12 @@ class CacheRegistry:
         method: str,
         request: BondFutureInput,
         result: BondFutureBasketOutput,
-    ) -> BondFutureBasketOutput:
-        """Write basket and per-bond rows from ``compute_bond_future_analytics``."""
+    ) -> list[dict[str, Any]]:
+        """Write basket and per-bond rows from ``compute_bond_future_analytics``.
+
+        Returns the ``bond_future_outputs`` row dicts that were inserted
+        (JSON-ready), cheapest-to-deliver first.
+        """
         _ = owner, method  # reserved for future calculation_log linkage
         created_at = utc_now_ms()
         bond_future = request.bond_future
@@ -489,33 +496,33 @@ class CacheRegistry:
             },
         )
 
+        output_rows: list[dict[str, Any]] = []
         for output in result.outputs:
             repo_rate, repo_json = _bond_repo_fields(
                 request, output.bond, delivery, basket_repo_rate=result.repo_rate
             )
-            self._insert_row(
-                "bond_future_outputs",
-                {
-                    "future_output_id": join_id(basket_output_id, output.bond.bond_id, short_id()),
-                    "basket_output_id": basket_output_id,
-                    "bond_id": output.bond.bond_id,
-                    "index": float(output.index),
-                    "conversion_factor": output.conversion_factor,
-                    "clean_price": output.clean_price,
-                    "accrued_interest": output.accrued_interest,
-                    "repo_rate": repo_rate,
-                    "repo_term_structure_json": repo_json,
-                    "forward_clean_price": output.forward_clean_price,
-                    "implied_repo_rate": output.implied_repo_rate,
-                    "gross_basis": output.gross_basis,
-                    "net_basis": output.net_basis,
-                    "delta": output.delta,
-                    "gamma": output.gamma,
-                    "implied_fair_futures_price": output.implied_fair_futures_price,
-                    "created_at": created_at,
-                },
-            )
-        return result
+            row = {
+                "future_output_id": join_id(basket_output_id, output.bond.bond_id, short_id()),
+                "basket_output_id": basket_output_id,
+                "bond_id": output.bond.bond_id,
+                "index": float(output.index),
+                "conversion_factor": output.conversion_factor,
+                "clean_price": output.clean_price,
+                "accrued_interest": output.accrued_interest,
+                "repo_rate": repo_rate,
+                "repo_term_structure_json": repo_json,
+                "forward_clean_price": output.forward_clean_price,
+                "implied_repo_rate": output.implied_repo_rate,
+                "gross_basis": output.gross_basis,
+                "net_basis": output.net_basis,
+                "delta": output.delta,
+                "gamma": output.gamma,
+                "implied_fair_futures_price": output.implied_fair_futures_price,
+                "created_at": created_at,
+            }
+            self._insert_row("bond_future_outputs", row)
+            output_rows.append(row)
+        return output_rows
 
     def upsert_bond_future_convention(self, convention_id: str) -> None:
         """Insert or replace a convention row from :data:`BOND_FUTURE_CONVENTIONS`."""
