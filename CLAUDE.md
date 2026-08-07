@@ -5,11 +5,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Overview
 
 cqfi is an interactive agent for QuantLib-based fixed-income analytics on government bonds. It combines:
-- **QuantLib** for yield-curve modeling and CMT (Constant Maturity Treasury) pricing
-- **framecache** (local SQLite) for caching analytics results
-- **mcp-data** for natural-language SQL queries against SQLite/DuckDB databases
-- **LLM integration** (Claude) for intelligent query planning and result explanation
-- **GUI** (PySide6) with Markdown rendering, sortable tables, and plotnine charts
+- QuantLib for yield-curve modeling and CMT (Constant Maturity Treasury) pricing
+- framecache (local SQLite) for caching analytics results
+- mcp-data for natural-language SQL queries against SQLite/duckdb databases
+- LLM integration (Claude) for intelligent query planning and result explanation
+- GUI (pyside6) with Markdown rendering, sortable tables, and plotnine charts
 
 The agent exposes both a **CLI REPL** (`cqfi`) and **GUI chat** (`cqfi-gui`) for the same underlying analytics engine.
 
@@ -162,13 +162,13 @@ Loaded by `config.py` via `python-dotenv`; does not override existing shell env.
 - **mcp-data** (`../mcp_data`) — Natural-language SQL planning and query execution
 
 ### Key PyPI Dependencies
-- **QuantLib** — bond pricing, curve construction
-- **polars** — data manipulation (preferred over pandas)
-- **pyside6** — GUI framework
-- **plotnine** — ggplot2-style plotting
-- **pyyaml** — config file parsing
-- **duckdb** — alternative to SQLite for queries
-- **python-dotenv** — load `.env` files
+- QuantLib — bond pricing, curve construction
+- polars — data manipulation (preferred over pandas)
+- pyside6 — GUI framework
+- plotnine — ggplot2-style plotting
+- pyyaml — config file parsing
+- duckdb — alternative to SQLite for queries
+- python-dotenv — load `.env` files
 
 ## Testing Notes
 

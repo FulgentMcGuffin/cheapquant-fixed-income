@@ -21,8 +21,19 @@ from datetime import date
 from typing import Any, NamedTuple
 
 from PySide6.QtCore import QRect, Qt, QThread, Signal
-from PySide6.QtGui import QCloseEvent, QColor, QFont, QFontMetrics, QPainter, QResizeEvent
+from PySide6.QtGui import (
+    QCloseEvent,
+    QColor,
+    QFont,
+    QFontMetrics,
+    QKeySequence,
+    QPainter,
+    QResizeEvent,
+    QShortcut,
+    QTextOption,
+)
 from PySide6.QtWidgets import (
+    QApplication,
     QHBoxLayout,
     QLabel,
     QMainWindow,
@@ -56,6 +67,7 @@ from cqfi.batch.models import (
 )
 from cqfi.batch.planner import BatchPlan, IssuerPlan
 from cqfi.config import AppSettings
+from cqfi.instruments import Bond
 
 _CELL_W = 14
 _CELL_H = 14
@@ -81,7 +93,7 @@ class HoverInfo(NamedTuple):
 _FLOAT_DISPLAY_DECIMALS = 4
 _JSON_FONT_MAX_PT = 9
 _JSON_FONT_MIN_PT = 4
-_JSON_FONT_MIN_PX = 7  # last-resort pixel size when point sizes still overflow
+_JSON_FONT_MIN_PX = 4
 
 
 def _round_floats_for_display(value: Any, ndigits: int = _FLOAT_DISPLAY_DECIMALS) -> Any:
@@ -89,7 +101,10 @@ def _round_floats_for_display(value: Any, ndigits: int = _FLOAT_DISPLAY_DECIMALS
     if isinstance(value, float):
         if value != value:  # NaN
             return value
-        return round(value, ndigits)
+        rounded = round(value, ndigits)
+        if rounded == int(rounded) and abs(rounded) < 1e15:
+            return int(rounded)
+        return rounded
     if isinstance(value, dict):
         return {k: _round_floats_for_display(v, ndigits) for k, v in value.items()}
     if isinstance(value, list):
@@ -97,71 +112,19 @@ def _round_floats_for_display(value: Any, ndigits: int = _FLOAT_DISPLAY_DECIMALS
     return value
 
 
-def _compact_row_lines(payload: Any) -> str | None:
-    """One compact JSON object per line (good for ``{"rows":[...]}`` / lists)."""
-    rows: list[Any] | None = None
-    wrapper_key = None
-    if isinstance(payload, dict) and isinstance(payload.get("rows"), list):
-        rows = payload["rows"]
-        wrapper_key = "rows"
-        extra = {k: v for k, v in payload.items() if k != "rows"}
-    elif isinstance(payload, list):
-        rows = payload
-        extra = {}
-    else:
-        return None
-    if not rows:
-        return None
-    lines = [
-        json.dumps(
-            _round_floats_for_display(row), separators=(",", ":"), ensure_ascii=False
-        )
-        for row in rows
-    ]
-    body = ",\n".join(lines)
-    if wrapper_key is None:
-        return "[\n" + body + "\n]"
-    # Keep non-row keys (e.g. _warning) on a trailing compact line.
-    if extra:
-        extras = json.dumps(
-            _round_floats_for_display(extra), separators=(",", ":"), ensure_ascii=False
-        )
-        # extras is "{...}"; splice into {"rows":[...], ...}
-        extras_inner = extras[1:-1].strip()
-        if extras_inner:
-            return '{"' + wrapper_key + '":[\n' + body + "\n]," + extras_inner + "}"
-    return '{"' + wrapper_key + '":[\n' + body + "\n]}"
-
-
-def _detail_display_candidates(detail: str | None) -> list[str]:
-    """Return JSON renderings from roomiest to densest (display-only copies)."""
+def _format_detail_compact(detail: str | None) -> str:
+    """Single-line JSON with no extra whitespace (display-only float rounding)."""
     if not detail:
-        return [""]
+        return ""
     try:
         payload = _round_floats_for_display(json.loads(detail))
     except (TypeError, json.JSONDecodeError):
-        return [detail]
-
-    candidates = [
-        json.dumps(payload, indent=2, ensure_ascii=False),
-        json.dumps(payload, indent=1, ensure_ascii=False),
-    ]
-    row_lines = _compact_row_lines(payload)
-    if row_lines is not None:
-        candidates.append(row_lines)
-    candidates.append(json.dumps(payload, separators=(",", ":"), ensure_ascii=False))
-    # De-dupe while preserving order.
-    seen: set[str] = set()
-    unique: list[str] = []
-    for text in candidates:
-        if text not in seen:
-            seen.add(text)
-            unique.append(text)
-    return unique
+        return " ".join(detail.split())
+    return json.dumps(payload, separators=(",", ":"), ensure_ascii=False)
 
 
 class FittingJsonView(QPlainTextEdit):
-    """Read-only JSON view: compact spacing + smaller fonts until text fits (no scroll)."""
+    """Read-only JSON view: minified text + smallest font needed to fit (no scroll)."""
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
@@ -171,65 +134,77 @@ class FittingJsonView(QPlainTextEdit):
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.setPlaceholderText(
-            "Hover over a completed (green) or failed (red) cell to see details."
+            "Hover over a completed (green) or failed (red) cell to see details. "
+            "Ctrl+J copies the detail pane."
         )
-        self.document().setDocumentMargin(1)
-        self.setStyleSheet("QPlainTextEdit { padding: 0px; }")
-        self._candidates: list[str] = []
+        self.document().setDocumentMargin(0)
+        wrap = QTextOption()
+        wrap.setWrapMode(QTextOption.WrapMode.WrapAtWordBoundaryOrAnywhere)
+        self.document().setDefaultTextOption(wrap)
+        self.setStyleSheet("QPlainTextEdit { padding: 0px; margin: 0px; }")
+        self._body = ""
         self.setFont(QFont("Consolas", _JSON_FONT_MAX_PT))
 
     def clear_text(self) -> None:
-        self._candidates = []
+        self._body = ""
         self.clear()
 
+    def copyable_text(self) -> str:
+        """Full compact detail for clipboard (not the display-only truncation)."""
+        return self._body
+
     def set_detail(self, detail: str | None) -> None:
-        """Show *detail*, shrinking whitespace/font until it fits the viewport."""
-        self._candidates = _detail_display_candidates(detail)
-        self._fit()
+        """Show minified *detail* and shrink font until it fits the viewport."""
+        self._body = _format_detail_compact(detail)
+        self._fit_font()
 
     def resizeEvent(self, event: QResizeEvent) -> None:
         super().resizeEvent(event)
-        if self._candidates:
-            self._fit()
+        if self._body:
+            self._fit_font()
 
     def _font_candidates(self) -> list[QFont]:
         fonts: list[QFont] = []
         for size in range(_JSON_FONT_MAX_PT, _JSON_FONT_MIN_PT - 1, -1):
             fonts.append(QFont("Consolas", size))
-        for px in range(11, _JSON_FONT_MIN_PX - 1, -1):
+        for px in range(12, _JSON_FONT_MIN_PX - 1, -1):
             font = QFont("Consolas")
             font.setPixelSize(px)
             fonts.append(font)
         return fonts
 
-    def _text_fits(self, text: str, font: QFont, width: int, height: int) -> bool:
-        doc = self.document()
-        doc.setDefaultFont(font)
-        doc.setDocumentMargin(1)
-        doc.setTextWidth(width)
+    def _text_fits(self, font: QFont, width: int, height: int, text: str | None = None) -> bool:
+        body = self._body if text is None else text
         self.setFont(font)
-        self.setPlainText(text)
+        self.setPlainText(body)
+        doc = self.document()
+        doc.setDocumentMargin(0)
+        doc.setTextWidth(width)
         return doc.size().height() <= height + 0.5
 
-    def _fit(self) -> None:
-        """Choose the roomiest formatting + largest font that fits; never scroll."""
-        if not self._candidates or self._candidates == [""]:
+    def _fit_font(self) -> None:
+        """Use the largest font where minified JSON fits; never show scrollbars."""
+        if not self._body:
             self.clear()
             return
         viewport_h = max(self.viewport().height(), 1)
         viewport_w = max(self.viewport().width(), 1)
-        fonts = self._font_candidates()
-        for text in self._candidates:
-            for font in fonts:
-                if self._text_fits(text, font, viewport_w, viewport_h):
-                    self.setVerticalScrollBarPolicy(
-                        Qt.ScrollBarPolicy.ScrollBarAlwaysOff
-                    )
-                    return
-        # Last resort: densest text + smallest font (may clip; still no scrollbar —
-        # scrollbars are unusable while the panel is hover-driven).
-        self.setFont(fonts[-1])
-        self.setPlainText(self._candidates[-1])
+        chosen = self._font_candidates()[-1]
+        for font in self._font_candidates():
+            if self._text_fits(font, viewport_w, viewport_h):
+                chosen = font
+                break
+        display = self._body
+        if not self._text_fits(chosen, viewport_w, viewport_h):
+            trimmed = self._body
+            while len(trimmed) > 24 and not self._text_fits(
+                chosen, viewport_w, viewport_h, trimmed + "…"
+            ):
+                trimmed = trimmed[: max(24, int(len(trimmed) * 0.92))]
+            display = trimmed + "…"
+        self.setFont(chosen)
+        self.setPlainText(display)
+        self.document().setTextWidth(viewport_w)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
 
@@ -249,10 +224,19 @@ class HeatmapCanvas(QWidget):
         col_dates: Sequence[date],
         applicable: Mapping[date, Sequence[str]],
         theme: Theme,
+        *,
+        row_display_labels: Sequence[str] | None = None,
         parent: QWidget | None = None,
     ):
         super().__init__(parent)
         self._rows = tuple(row_labels)
+        if row_display_labels is None:
+            self._display_labels = self._rows
+        else:
+            displays = tuple(row_display_labels)
+            if len(displays) != len(self._rows):
+                raise ValueError("row_display_labels must match row_labels length")
+            self._display_labels = displays
         self._dates = tuple(col_dates)
         self._row_index = {key: i for i, key in enumerate(self._rows)}
         self._col_index = {d: i for i, d in enumerate(self._dates)}
@@ -282,7 +266,7 @@ class HeatmapCanvas(QWidget):
         return len(self._dates)
 
     def row_label(self, row: int) -> str:
-        return self._rows[row]
+        return self._display_labels[row]
 
     def date_at(self, col: int) -> date:
         return self._dates[col]
@@ -438,10 +422,18 @@ class HeatmapPane(QWidget):
         col_dates: Sequence[date],
         applicable: Mapping[date, Sequence[str]],
         theme: Theme,
+        *,
+        row_display_labels: Sequence[str] | None = None,
         parent: QWidget | None = None,
     ):
         super().__init__(parent)
-        self.canvas = HeatmapCanvas(row_labels, col_dates, applicable, theme)
+        self.canvas = HeatmapCanvas(
+            row_labels,
+            col_dates,
+            applicable,
+            theme,
+            row_display_labels=row_display_labels,
+        )
         self.canvas.cell_hovered.connect(self.cell_hovered.emit)
         self._row_header = _RowHeader(self.canvas, theme)
         self._col_header = _ColumnHeader(self.canvas, theme)
@@ -588,16 +580,18 @@ class _BaseBatchWindow(QMainWindow):
         layout.addLayout(progress_row)
 
         info_box = QWidget()
-        info_box.setFixedHeight(220)
+        info_box.setFixedHeight(192)
         info_layout = QVBoxLayout(info_box)
         info_layout.setContentsMargins(0, 0, 0, 0)
-        info_layout.setSpacing(2)
+        info_layout.setSpacing(0)
         self._info_header = QLabel(
-            "Hover over a completed (green) or failed (red) cell to see details."
+            "Hover over a completed (green) or failed (red) cell to see details. "
+            "Ctrl+J copies the detail pane."
         )
         self._info_header.setWordWrap(True)
+        self._info_header.setMaximumHeight(28)
         header_font = self._info_header.font()
-        header_font.setPointSize(9)
+        header_font.setPointSize(8)
         self._info_header.setFont(header_font)
         info_layout.addWidget(self._info_header)
         self._info_panel = FittingJsonView()
@@ -611,6 +605,16 @@ class _BaseBatchWindow(QMainWindow):
 
         self._resize_helper = FramelessResizeHelper(self)
         self._resize_helper.install()
+
+        copy_shortcut = QShortcut(QKeySequence("Ctrl+J"), self)
+        copy_shortcut.setContext(Qt.ShortcutContext.WindowShortcut)
+        copy_shortcut.activated.connect(self._copy_info_panel_to_clipboard)
+
+    def _copy_info_panel_to_clipboard(self) -> None:
+        text = self._info_panel.copyable_text()
+        if not text:
+            return
+        QApplication.clipboard().setText(text)
 
     def eventFilter(self, watched, event):
         if self._resize_helper.handle_event_filter(watched, event):
@@ -703,8 +707,25 @@ class _BaseBatchWindow(QMainWindow):
 # ═══════════════════════════════════════════════════════════════════════════
 
 
+def _bond_row_key(bond: Bond) -> str:
+    """Internal row key — must match batch event ``bond_key`` (``str(bond)``)."""
+    return str(bond)
+
+
+def _bond_display_label(bond: Bond) -> str:
+    """Row header label: prefer ``user_friendly_id`` when present."""
+    if bond.user_friendly_id is not None:
+        return bond.user_friendly_id.lower()
+    if bond.bond_id is not None:
+        return bond.bond_id.upper()
+    return bond.maturity.isoformat()
+
+
 def _issuer_applicable(issuer_plan: IssuerPlan) -> dict[date, tuple[str, ...]]:
-    return {item.trade_date: tuple(str(b) for b in item.bonds) for item in issuer_plan.work_items}
+    return {
+        item.trade_date: tuple(_bond_row_key(b) for b in item.bonds)
+        for item in issuer_plan.work_items
+    }
 
 
 class BatchWorkerThread(QThread):
@@ -768,10 +789,11 @@ class BatchAnalyticsWindow(_BaseBatchWindow):
         theme = get_theme(gui_settings.get("ui_theme"))
         panes = {
             issuer_plan.issuer: HeatmapPane(
-                [str(b) for b in issuer_plan.bonds],
+                [_bond_row_key(b) for b in issuer_plan.bonds],
                 issuer_plan.trade_dates,
                 _issuer_applicable(issuer_plan),
                 theme,
+                row_display_labels=[_bond_display_label(b) for b in issuer_plan.bonds],
             )
             for issuer_plan in plan.issuer_plans
         }

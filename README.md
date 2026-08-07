@@ -397,7 +397,8 @@ The progress window shows:
 - Overall progress and a **Stop** button (cancels queued work and terminates
   worker processes; rows already written remain in the database)
 - A detail pane: hover a green or red cell to see the JSON row written for
-  that cell (floats rounded to four decimals in the display only)
+  that cell (floats rounded to four decimals in the display only). **Ctrl+J**
+  copies the full compact JSON for the last hovered cell to the clipboard
 
 ### Standalone CLI (`batch_bond_analytics.py`)
 
